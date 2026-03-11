@@ -149,7 +149,7 @@ void do_variable_work(struct edfvd_task *task, u64 job_count, int overrun)
 
 	if (verbose) {
 		printf("Task %lu completed job %lu after %lu ms of work (overrun=%d)\n",
-		       task->id, job_count, elapsed_ms, overrun);
+		       task->task_nr, job_count, elapsed_ms, overrun);
 	}
 }
 
@@ -164,7 +164,7 @@ void *dummy_task(void *arg)
 	struct sched_param param = { .sched_priority = 0 };
 	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
 		fprintf(stderr, "Failed to set SCHED_EXT for task %lu\n",
-			task->id);
+			task->task_nr);
 		exit(EXIT_FAILURE);
 	}
 
@@ -174,7 +174,7 @@ void *dummy_task(void *arg)
 
 		if (verbose) {
 			printf("Task %lu released job %lu at time %lu.%09lu seconds\n",
-			       task->id, job_count, current_time.tv_sec,
+			       task->task_nr, job_count, current_time.tv_sec,
 			       current_time.tv_nsec);
 		}
 
@@ -200,7 +200,7 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 		    0) {
 			fprintf(stderr,
 				"Failed to create thread for task %lu\n",
-				task->id);
+				task->task_nr);
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -222,7 +222,7 @@ void edfvd_print_task_set(struct edfvd_task_set *ts)
 	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
 		printf("Task %lu: criticality=%s, period=%lu ms, modified_period=%lu ms, wcet_lo=%lu ms, wcet_hi=%lu ms\n",
-		       task->id, task->criticality == LO ? "LO" : "HI",
+		       task->task_nr, task->criticality == LO ? "LO" : "HI",
 		       task->period_ms, task->modified_period_ms,
 		       task->wcet_ms_lo, task->wcet_ms_hi);
 	}

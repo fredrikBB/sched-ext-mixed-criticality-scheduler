@@ -10,7 +10,7 @@ enum edfvd_criticality_level {
 
 /* Each individual release of a task is reffered to as a "job" */
 struct edfvd_task {
-	u64 id;
+	u64 task_nr;
 	enum edfvd_criticality_level criticality;
 	u64 period_ms; /* Minimum time between two jobs */
 	u64 modified_period_ms; /* Used by HI-criticality tasks */

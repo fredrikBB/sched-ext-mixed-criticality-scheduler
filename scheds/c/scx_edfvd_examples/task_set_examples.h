@@ -6,19 +6,19 @@ struct edfvd_task_set
 	task_set_1 = { .num_tasks = 3,
 		       .tasks = {
 			       {
-				       .id = 1,
+				       .task_nr = 1,
 				       .criticality = LO,
 				       .period_ms = 1000,
 				       .wcet_ms_lo = 200,
 			       },
 			       {
-				       .id = 2,
+				       .task_nr = 2,
 				       .criticality = LO,
 				       .period_ms = 1000,
 				       .wcet_ms_lo = 300,
 			       },
 			       {
-				       .id = 3,
+				       .task_nr = 3,
 				       .criticality = HI,
 				       .period_ms = 2000,
 				       .modified_period_ms =
@@ -31,7 +31,7 @@ struct edfvd_task_set
 struct edfvd_task_set task_set_2 = { .num_tasks = 1,
 				     .tasks = {
 					     {
-						     .id = 1,
+						     .task_nr = 1,
 						     .criticality = LO,
 						     .period_ms = 1000,
 						     .wcet_ms_lo = 500,
@@ -42,13 +42,13 @@ struct edfvd_task_set
 	task_set_unschedulable = { .num_tasks = 2,
 				   .tasks = {
 					   {
-						   .id = 1,
+						   .task_nr = 1,
 						   .criticality = LO,
 						   .period_ms = 1000,
 						   .wcet_ms_lo = 700,
 					   },
 					   {
-						   .id = 2,
+						   .task_nr = 2,
 						   .criticality = HI,
 						   .period_ms = 1000,
 						   .modified_period_ms = -1,
