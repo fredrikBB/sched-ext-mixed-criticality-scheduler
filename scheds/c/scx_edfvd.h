@@ -16,6 +16,7 @@ struct edfvd_task {
 	int modified_period_ms; /* Used by HI-criticality tasks */
 	int wcet_ms_lo; /* WCET in LO-criticality mode */
 	int wcet_ms_hi; /* WCET in HI-criticality mode */
+	pthread_t thread;
 };
 
 struct edfvd_task_set {

@@ -12,4 +12,5 @@ void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 
 SCX_OPS_DEFINE(edfvd_ops,
 	       .exit			= (void *)edfvd_exit,
+		   .flags			= SCX_OPS_SWITCH_PARTIAL,
 	       .name			= "edfvd");

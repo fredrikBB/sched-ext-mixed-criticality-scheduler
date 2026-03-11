@@ -4,12 +4,20 @@
 #include <signal.h>
 #include <assert.h>
 #include <libgen.h>
+#include <pthread.h>
+#include <sched.h>
+#include <sys/syscall.h>
 #include <bpf/bpf.h>
 #include <scx/common.h>
 #include "scx_edfvd.bpf.skel.h"
 
 #include "scx_edfvd.h"
 #include "scx_edfvd_examples/task_set_examples.h"
+
+/* Defined in UAPI */
+#ifndef SCHED_EXT
+#define SCHED_EXT 7
+#endif
 
 const char help_fmt[] =
 "An EDF-VD scheduler.\n"
@@ -120,22 +128,51 @@ void edfvd_copy_task_set_to_map(struct edfvd_task_set *ts)
 	return;
 }
 
-/* 
- * Starts dummy jobs based on the task set and schedule them on the EDF-VD scheduler.
- * Assumes that the EDF-VD scheduler is already loaded and attached.
- */
-void edfvd_start_tasks(struct edfvd_task_set *ts, struct scx_edfvd *skel)
+/* Dummy task, burn cpu time for a specified amount of time periodically. */
+void *edfvd_dummy_task(void *arg)
 {
+	struct edfvd_task *task = (struct edfvd_task *)arg;
+
+	pid_t tid = syscall(SYS_gettid);
+	struct sched_param param = { .sched_priority = 0 };
+	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
+		fprintf(stderr, "Failed to set SCHED_EXT for task %d\n", task->id);
+		exit(EXIT_FAILURE);
+	}
+
+	while (1) {
+		printf("Task %d executing\n", task->id);
+		sleep(1);
+	}
+	return NULL;
+}
+
+/* 
+ * Starts periodic tasks based on the task set.
+ * Policy is set to SCHED_EXT by the thread itself as pthread_attr_setschedpolicy
+ * is not supported for SCHED_EXT.
+ */
+void edfvd_start_tasks(struct edfvd_task_set *ts)
+{
+	for(int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		pthread_attr_t attr;
+		pthread_attr_init(&attr);
+		if (pthread_create(&task->thread, &attr, edfvd_dummy_task, task) != 0) {
+			fprintf(stderr, "Failed to create thread for task %d\n", task->id);
+			exit(EXIT_FAILURE);
+		}
+	}
 	return;
 }
 
-/*
- * Dummy job, burn cpu time for a specified amount of time.
- * A job is an individual release of a task.
- */
-void edfvd_dummy_job(struct edfvd_task *task)
+/* Stop the periodic tasks */
+void edfvd_stop_tasks(struct edfvd_task_set *ts)
 {
-	/* To begin burn cpu-time < wcet_ms_lo*/
+	for(int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		pthread_cancel(task->thread);
+	}
 	return;
 }
 
@@ -191,18 +228,21 @@ restart:
 
 	edfvd_print_task_set(&task_set);
 	
-	edfvd_start_tasks(&task_set, skel);
-	printf("Task set started.\n");
-	
 	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
 	edfvd_copy_task_set_to_map(&task_set);
 	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
     printf("EDF-VD scheduler loaded and attached.\n");
 
+	edfvd_start_tasks(&task_set);
+	printf("Task set started.\n");
+
 	printf("Press Ctrl+C to exit.\n");
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
 		sleep(1);
 	}
+
+	edfvd_stop_tasks(&task_set);
+	printf("Task set stopped.\n");
 
 	bpf_link__destroy(link);
 	ecode = UEI_REPORT(skel, uei);
