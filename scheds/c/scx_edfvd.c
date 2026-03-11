@@ -158,8 +158,8 @@ int main(int argc, char **argv)
 {
 	struct scx_edfvd *skel;
 	struct bpf_link *link;
-	__u32 opt;
-	__u64 ecode;
+	u32 opt;
+	u64 ecode;
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
