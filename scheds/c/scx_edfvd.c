@@ -121,13 +121,11 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 	return;
 }
 
-/* Fill out eBPF map used by the scheduler */
 void edfvd_copy_task_set_to_map(struct edfvd_task_set *ts)
 {
 	return;
 }
 
-/* Dummy task, burn cpu time for a specified amount of time periodically. */
 void *edfvd_dummy_task(void *arg)
 {
 	struct edfvd_task *task = (struct edfvd_task *)arg;
@@ -147,11 +145,7 @@ void *edfvd_dummy_task(void *arg)
 	return NULL;
 }
 
-/* 
- * Starts periodic tasks based on the task set.
- * Policy is set to SCHED_EXT by the thread itself as pthread_attr_setschedpolicy
- * is not supported for SCHED_EXT.
- */
+/* Policy is set to SCHED_EXT by the thread itself */
 void edfvd_start_tasks(struct edfvd_task_set *ts)
 {
 	for (int i = 0; i < ts->num_tasks; i++) {
@@ -168,7 +162,6 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 	return;
 }
 
-/* Stop the periodic tasks */
 void edfvd_stop_tasks(struct edfvd_task_set *ts)
 {
 	for (int i = 0; i < ts->num_tasks; i++) {
