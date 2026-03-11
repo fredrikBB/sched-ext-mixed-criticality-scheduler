@@ -127,7 +127,32 @@ void edfvd_copy_task_set_to_map(struct edfvd_task_set *ts)
 	return;
 }
 
-void *edfvd_dummy_task(void *arg)
+void do_variable_work(struct edfvd_task *task, u64 job_count, int overrun)
+{
+	float percantage_of_wcet = 0.8;
+	struct timespec start_time, current_time;
+
+	if (overrun) {
+		percantage_of_wcet = 1.2;
+	}
+
+	u64 work_time_ms = (u64)(percantage_of_wcet * task->wcet_ms_lo);
+
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
+	while (1) {
+		clock_gettime(CLOCK_MONOTONIC, &current_time);
+		u64 elapsed_ms =
+			(current_time.tv_sec - start_time.tv_sec) * 1000 +
+			(current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+		if (elapsed_ms >= work_time_ms) {
+			printf("Task %lu completed job %lu after %lu ms of work (overrun=%d)\n",
+			       task->id, job_count, elapsed_ms, overrun);
+			break;
+		}
+	}
+}
+
+void *dummy_task(void *arg)
 {
 	struct edfvd_task *task = (struct edfvd_task *)arg;
 	struct timespec current_time;
@@ -149,9 +174,7 @@ void *edfvd_dummy_task(void *arg)
 		       task->id, job_count, current_time.tv_sec,
 		       current_time.tv_nsec);
 
-		/* Burn CPU below LO-criticality WCET */
-		for (volatile int i = 0; i < 1000000; i++) {
-		}
+		do_variable_work(task, job_count, 0);
 
 		// Calculate absolute next release time
 		next_job_release.tv_sec += task->period_ms / 1000;
@@ -169,8 +192,8 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 		struct edfvd_task *task = &ts->tasks[i];
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
-		if (pthread_create(&task->thread, &attr, edfvd_dummy_task,
-				   task) != 0) {
+		if (pthread_create(&task->thread, &attr, dummy_task, task) !=
+		    0) {
 			fprintf(stderr,
 				"Failed to create thread for task %lu\n",
 				task->id);
