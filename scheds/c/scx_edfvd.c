@@ -137,18 +137,19 @@ void do_variable_work(struct edfvd_task *task, u64 job_count, int overrun)
 	}
 
 	u64 work_time_ms = (u64)(percantage_of_wcet * task->wcet_ms_lo);
+	u64 elapsed_ms = 0;
 
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
-	while (1) {
+	while (elapsed_ms < work_time_ms) {
 		clock_gettime(CLOCK_MONOTONIC, &current_time);
-		u64 elapsed_ms =
+		elapsed_ms =
 			(current_time.tv_sec - start_time.tv_sec) * 1000 +
 			(current_time.tv_nsec - start_time.tv_nsec) / 1000000;
-		if (elapsed_ms >= work_time_ms) {
-			printf("Task %lu completed job %lu after %lu ms of work (overrun=%d)\n",
-			       task->id, job_count, elapsed_ms, overrun);
-			break;
-		}
+	}
+
+	if (verbose) {
+		printf("Task %lu completed job %lu after %lu ms of work (overrun=%d)\n",
+		       task->id, job_count, elapsed_ms, overrun);
 	}
 }
 
@@ -170,9 +171,12 @@ void *dummy_task(void *arg)
 	clock_gettime(CLOCK_MONOTONIC, &next_job_release);
 	while (1) {
 		clock_gettime(CLOCK_MONOTONIC, &current_time);
-		printf("Task %lu released job %lu at time %lu.%09lu seconds\n",
-		       task->id, job_count, current_time.tv_sec,
-		       current_time.tv_nsec);
+
+		if (verbose) {
+			printf("Task %lu released job %lu at time %lu.%09lu seconds\n",
+			       task->id, job_count, current_time.tv_sec,
+			       current_time.tv_nsec);
+		}
 
 		do_variable_work(task, job_count, 0);
 
