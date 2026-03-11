@@ -28,7 +28,15 @@ struct edfvd_task_set
 			       },
 		       } };
 
-struct edfvd_task_set task_set_2;
+struct edfvd_task_set task_set_2 = { .num_tasks = 1,
+				     .tasks = {
+					     {
+						     .id = 1,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 500,
+					     },
+				     } };
 
 struct edfvd_task_set
 	task_set_unschedulable = { .num_tasks = 2,

@@ -6,6 +6,7 @@
 #include <libgen.h>
 #include <pthread.h>
 #include <sched.h>
+#include <time.h>
 #include <sys/syscall.h>
 #include <bpf/bpf.h>
 #include <scx/common.h>
@@ -129,20 +130,36 @@ void edfvd_copy_task_set_to_map(struct edfvd_task_set *ts)
 void *edfvd_dummy_task(void *arg)
 {
 	struct edfvd_task *task = (struct edfvd_task *)arg;
+	struct timespec current_time;
+	struct timespec next_job_release;
+	u64 job_count = 0;
 
 	pid_t tid = syscall(SYS_gettid);
 	struct sched_param param = { .sched_priority = 0 };
 	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
-		fprintf(stderr, "Failed to set SCHED_EXT for task %d\n",
+		fprintf(stderr, "Failed to set SCHED_EXT for task %lu\n",
 			task->id);
 		exit(EXIT_FAILURE);
 	}
 
+	clock_gettime(CLOCK_MONOTONIC, &next_job_release);
 	while (1) {
-		printf("Task %d executing\n", task->id);
-		sleep(1);
+		clock_gettime(CLOCK_MONOTONIC, &current_time);
+		printf("Task %lu released job %lu at time %lu.%09lu seconds\n",
+		       task->id, job_count, current_time.tv_sec,
+		       current_time.tv_nsec);
+
+		/* Burn CPU below LO-criticality WCET */
+		for (volatile int i = 0; i < 1000000; i++) {
+		}
+
+		// Calculate absolute next release time
+		next_job_release.tv_sec += task->period_ms / 1000;
+		next_job_release.tv_nsec += (task->period_ms % 1000) * 1000000;
+		job_count++;
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
+				&next_job_release, NULL);
 	}
-	return NULL;
 }
 
 /* Policy is set to SCHED_EXT by the thread itself */
@@ -154,7 +171,8 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 		pthread_attr_init(&attr);
 		if (pthread_create(&task->thread, &attr, edfvd_dummy_task,
 				   task) != 0) {
-			fprintf(stderr, "Failed to create thread for task %d\n",
+			fprintf(stderr,
+				"Failed to create thread for task %lu\n",
 				task->id);
 			exit(EXIT_FAILURE);
 		}
@@ -176,7 +194,7 @@ void edfvd_print_task_set(struct edfvd_task_set *ts)
 	printf("Task set:\n");
 	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		printf("Task %d: criticality=%s, period=%d ms, modified_period=%d ms, wcet_lo=%d ms, wcet_hi=%d ms\n",
+		printf("Task %lu: criticality=%s, period=%lu ms, modified_period=%lu ms, wcet_lo=%lu ms, wcet_hi=%lu ms\n",
 		       task->id, task->criticality == LO ? "LO" : "HI",
 		       task->period_ms, task->modified_period_ms,
 		       task->wcet_ms_lo, task->wcet_ms_hi);

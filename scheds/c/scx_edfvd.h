@@ -10,17 +10,17 @@ enum edfvd_criticality_level {
 
 /* Each individual release of a task is reffered to as a "job" */
 struct edfvd_task {
-	int id;
+	u64 id;
 	enum edfvd_criticality_level criticality;
-	int period_ms; /* Minimum time between two jobs */
-	int modified_period_ms; /* Used by HI-criticality tasks */
-	int wcet_ms_lo; /* WCET in LO-criticality mode */
-	int wcet_ms_hi; /* WCET in HI-criticality mode */
+	u64 period_ms; /* Minimum time between two jobs */
+	u64 modified_period_ms; /* Used by HI-criticality tasks */
+	u64 wcet_ms_lo; /* WCET in LO-criticality mode */
+	u64 wcet_ms_hi; /* WCET in HI-criticality mode */
 	pthread_t thread;
 };
 
 struct edfvd_task_set {
-	int num_tasks;
+	u64 num_tasks;
 	struct edfvd_task tasks[MAX_TASKS];
 };
 
