@@ -24,4 +24,4 @@ struct edfvd_task_set {
 	struct edfvd_task tasks[MAX_TASKS];
 };
 
-#endif  // __SCX_EDFVD_COMMON_H
+#endif // __SCX_EDFVD_COMMON_H

@@ -19,17 +19,16 @@
 #define SCHED_EXT 7
 #endif
 
-const char help_fmt[] =
-"An EDF-VD scheduler.\n"
-"-v: verbose output\n"
-"-t <task_set>: specify task set to use (e.g., -t 1)\n"
-;
+const char help_fmt[] = "An EDF-VD scheduler.\n"
+			"-v: verbose output\n"
+			"-t <task_set>: specify task set to use (e.g., -t 1)\n";
 
 static bool verbose;
 static volatile int exit_req;
 static struct edfvd_task_set task_set;
 
-static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+			   va_list args)
 {
 	if (level == LIBBPF_DEBUG && !verbose)
 		return 0;
@@ -52,10 +51,10 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 	 * LO-criticality WCET estimate.
 	 */
 	float sum_hi_lo = 0.0;
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		if (task->criticality == HI){
-			sum_hi_lo += (float) task->wcet_ms_lo / task->period_ms;
+		if (task->criticality == HI) {
+			sum_hi_lo += (float)task->wcet_ms_lo / task->period_ms;
 		}
 	}
 
@@ -64,10 +63,10 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 	 * HI-criticality WCET estimate.
 	 */
 	float sum_hi_hi = 0.0;
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		if (task->criticality == HI){
-			sum_hi_hi += (float) task->wcet_ms_hi / task->period_ms;
+		if (task->criticality == HI) {
+			sum_hi_hi += (float)task->wcet_ms_hi / task->period_ms;
 		}
 	}
 
@@ -75,10 +74,10 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 	 * LO-criticality WCET estimate.
 	 */
 	float sum_lo_lo = 0.0;
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		if (task->criticality == LO){
-			sum_lo_lo += (float) task->wcet_ms_lo / task->period_ms;
+		if (task->criticality == LO) {
+			sum_lo_lo += (float)task->wcet_ms_lo / task->period_ms;
 		}
 	}
 
@@ -86,7 +85,7 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 	float x = sum_hi_lo / (1.0 - sum_lo_lo);
 
 	/* Check schedulability condition */
-	if(x * sum_lo_lo + sum_hi_hi > 1.0) {
+	if (x * sum_lo_lo + sum_hi_hi > 1.0) {
 		return -1;
 	}
 	return x;
@@ -108,14 +107,14 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 {
 	float x = edfvd_calculate_x_parameter(ts);
 
-	if(x == -1) {
+	if (x == -1) {
 		fprintf(stderr, "Task set is not schedulable under EDF-VD.\n");
 		exit(EXIT_FAILURE);
 	}
 
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		if (task->criticality == HI){
+		if (task->criticality == HI) {
 			task->modified_period_ms = x * task->period_ms;
 		}
 	}
@@ -136,7 +135,8 @@ void *edfvd_dummy_task(void *arg)
 	pid_t tid = syscall(SYS_gettid);
 	struct sched_param param = { .sched_priority = 0 };
 	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
-		fprintf(stderr, "Failed to set SCHED_EXT for task %d\n", task->id);
+		fprintf(stderr, "Failed to set SCHED_EXT for task %d\n",
+			task->id);
 		exit(EXIT_FAILURE);
 	}
 
@@ -154,12 +154,14 @@ void *edfvd_dummy_task(void *arg)
  */
 void edfvd_start_tasks(struct edfvd_task_set *ts)
 {
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
-		if (pthread_create(&task->thread, &attr, edfvd_dummy_task, task) != 0) {
-			fprintf(stderr, "Failed to create thread for task %d\n", task->id);
+		if (pthread_create(&task->thread, &attr, edfvd_dummy_task,
+				   task) != 0) {
+			fprintf(stderr, "Failed to create thread for task %d\n",
+				task->id);
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -169,7 +171,7 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 /* Stop the periodic tasks */
 void edfvd_stop_tasks(struct edfvd_task_set *ts)
 {
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
 		pthread_cancel(task->thread);
 	}
@@ -179,15 +181,12 @@ void edfvd_stop_tasks(struct edfvd_task_set *ts)
 void edfvd_print_task_set(struct edfvd_task_set *ts)
 {
 	printf("Task set:\n");
-	for(int i = 0; i < ts->num_tasks; i++) {
+	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
 		printf("Task %d: criticality=%s, period=%d ms, modified_period=%d ms, wcet_lo=%d ms, wcet_hi=%d ms\n",
-			task->id,
-			task->criticality == LO ? "LO" : "HI",
-			task->period_ms,
-			task->modified_period_ms,
-			task->wcet_ms_lo,
-			task->wcet_ms_hi);
+		       task->id, task->criticality == LO ? "LO" : "HI",
+		       task->period_ms, task->modified_period_ms,
+		       task->wcet_ms_lo, task->wcet_ms_hi);
 	}
 }
 
@@ -219,19 +218,20 @@ restart:
 		}
 	}
 	if (!task_set_selected) {
-		fprintf(stderr, "No task set selected. Use -t <task_set> to select a task set.\n");
+		fprintf(stderr,
+			"No task set selected. Use -t <task_set> to select a task set.\n");
 		exit(EXIT_FAILURE);
 	}
-	
+
 	edfvd_pre_processing(&task_set);
 	printf("Task set preprocessed.\n");
 
 	edfvd_print_task_set(&task_set);
-	
+
 	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
 	edfvd_copy_task_set_to_map(&task_set);
 	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
-    printf("EDF-VD scheduler loaded and attached.\n");
+	printf("EDF-VD scheduler loaded and attached.\n");
 
 	edfvd_start_tasks(&task_set);
 	printf("Task set started.\n");
