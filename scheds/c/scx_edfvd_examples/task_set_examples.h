@@ -9,21 +9,13 @@ struct edfvd_task_set
 				       .id = 1,
 				       .criticality = LO,
 				       .period_ms = 1000,
-				       .modified_period_ms =
-					       0, /* Does not matter for LO-criticality */
 				       .wcet_ms_lo = 200,
-				       .wcet_ms_hi =
-					       0, /* Does not matter for LO-criticality */
 			       },
 			       {
 				       .id = 2,
 				       .criticality = LO,
 				       .period_ms = 1000,
-				       .modified_period_ms =
-					       0, /* Does not matter for LO-criticality */
 				       .wcet_ms_lo = 300,
-				       .wcet_ms_hi =
-					       0, /* Does not matter for LO-criticality */
 			       },
 			       {
 				       .id = 3,
@@ -45,9 +37,7 @@ struct edfvd_task_set
 						   .id = 1,
 						   .criticality = LO,
 						   .period_ms = 1000,
-						   .modified_period_ms = -1,
 						   .wcet_ms_lo = 700,
-						   .wcet_ms_hi = -1,
 					   },
 					   {
 						   .id = 2,
