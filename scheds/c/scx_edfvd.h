@@ -17,6 +17,7 @@ struct edfvd_task {
 	u64 wcet_ms_lo; /* WCET in LO-criticality mode */
 	u64 wcet_ms_hi; /* WCET in HI-criticality mode */
 	pthread_t thread;
+	pid_t tid;
 };
 
 struct edfvd_task_set {
