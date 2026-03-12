@@ -98,6 +98,8 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
  *
  * modified_period_ms = x * period_ms for HI-criticality tasks
  * 
+ * set modified_period_ms = period_ms for LO-criticality tasks
+ * 
  * Algorithm based on Figure 1 in the paper: 
  *   S. Baruah et al., 
  *   "The Preemptive Uniprocessor Scheduling of Mixed-Criticality 
@@ -118,6 +120,8 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 		struct edfvd_task *task = &ts->tasks[i];
 		if (task->criticality == HI) {
 			task->modified_period_ms = x * task->period_ms;
+		}else {
+			task->modified_period_ms = task->period_ms;
 		}
 	}
 	return;

@@ -11,7 +11,7 @@ struct edfvd_task {
 	u64 task_nr;
 	u8 criticality; /* LO=0, HI=1 */
 	u64 period_ms; /* Minimum time between two jobs */
-	u64 modified_period_ms; /* Used by HI-criticality tasks */
+	u64 modified_period_ms; /* <= period_ms for HI-criticality tasks */
 	u64 wcet_ms_lo; /* WCET in LO-criticality mode */
 	u64 wcet_ms_hi; /* WCET in HI-criticality mode */
 };
