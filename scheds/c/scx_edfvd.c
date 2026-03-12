@@ -125,6 +125,7 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 
 void edfvd_copy_task_to_map(struct edfvd_task *task)
 {
+	pid_t pid = syscall(SYS_getpid);
 	struct task_ctx tctx = {
 		.task_nr = task->task_nr,
 		.criticality = task->criticality,
@@ -132,14 +133,11 @@ void edfvd_copy_task_to_map(struct edfvd_task *task)
 		.modified_period_ms = task->modified_period_ms,
 		.wcet_ms_lo = task->wcet_ms_lo,
 		.wcet_ms_hi = task->wcet_ms_hi,
-		.pid = task->pid,
 		.dummy = 0,
 	};
-	int err = bpf_map_update_elem(task_ctx_map_fd, &task->pid, &tctx,
-				      BPF_ANY);
+	int err = bpf_map_update_elem(task_ctx_map_fd, &pid, &tctx, BPF_ANY);
 	if (err) {
-		fprintf(stderr, "Failed to update task ctx for pid %d\n",
-			task->pid);
+		fprintf(stderr, "Failed to update task ctx for pid %d\n", pid);
 		exit(EXIT_FAILURE);
 	}
 	return;
@@ -177,9 +175,8 @@ void *dummy_task(void *arg)
 	struct timespec current_time;
 	struct timespec next_job_release;
 	u64 job_count = 0;
-
 	pid_t pid = syscall(SYS_getpid);
-	task->pid = pid;
+
 	edfvd_copy_task_to_map(task);
 
 	struct sched_param param = { .sched_priority = 0 };
