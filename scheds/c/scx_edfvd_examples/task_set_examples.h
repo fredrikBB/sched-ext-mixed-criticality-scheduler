@@ -50,7 +50,7 @@ struct edfvd_task_set
 					   {
 						   .task_nr = 2,
 						   .criticality = HI,
-						   .period_ms = 1000,
+						   .period_ms = 1000,git 
 						   .modified_period_ms = -1,
 						   .wcet_ms_lo = 400,
 						   .wcet_ms_hi = 900,
