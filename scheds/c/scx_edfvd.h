@@ -8,7 +8,7 @@ enum edfvd_criticality_level {
 	HI = 1,
 };
 
-/* Each individual release of a task is reffered to as a "job" */
+/* Each individual release of a task is referred to as a "job" */
 struct edfvd_task {
 	u64 task_nr;
 	enum edfvd_criticality_level criticality;
