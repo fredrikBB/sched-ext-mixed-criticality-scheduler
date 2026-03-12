@@ -120,7 +120,7 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 		struct edfvd_task *task = &ts->tasks[i];
 		if (task->criticality == HI) {
 			task->modified_period_ms = x * task->period_ms;
-		}else {
+		} else {
 			task->modified_period_ms = task->period_ms;
 		}
 	}
@@ -129,7 +129,8 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 
 void edfvd_copy_task_to_map(struct edfvd_task *task)
 {
-	pid_t pid = syscall(SYS_gettid); /* Thread ID, but called pid in task_struct */
+	pid_t pid = syscall(
+		SYS_gettid); /* Thread ID, but called pid in task_struct */
 	struct task_ctx tctx = {
 		.task_nr = task->task_nr,
 		.criticality = task->criticality,
@@ -179,7 +180,8 @@ void *dummy_task(void *arg)
 	struct timespec current_time;
 	struct timespec next_job_release;
 	u64 job_count = 0;
-	pid_t pid = syscall(SYS_gettid); /* Thread ID, but called pid in task_struct */
+	pid_t pid = syscall(
+		SYS_gettid); /* Thread ID, but called pid in task_struct */
 
 	edfvd_copy_task_to_map(task);
 
