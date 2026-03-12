@@ -122,7 +122,7 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 	return;
 }
 
-void edfvd_copy_task_set_to_map(struct edfvd_task_set *ts)
+void edfvd_copy_task_to_map(struct edfvd_task *task)
 {
 	return;
 }
@@ -162,6 +162,8 @@ void *dummy_task(void *arg)
 
 	pid_t tid = syscall(SYS_gettid);
 	task->tid = tid;
+	edfvd_copy_task_to_map(task);
+
 	struct sched_param param = { .sched_priority = 0 };
 	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
 		fprintf(stderr, "Failed to set SCHED_EXT for task %lu\n",
@@ -190,7 +192,6 @@ void *dummy_task(void *arg)
 	}
 }
 
-/* Start tasks before attaching to the scheduler to get thread id */
 /* Policy is set to SCHED_EXT by the thread itself */
 void edfvd_start_tasks(struct edfvd_task_set *ts)
 {
@@ -263,6 +264,10 @@ restart:
 		exit(EXIT_FAILURE);
 	}
 
+	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
+	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
+	printf("EDF-VD scheduler loaded and attached.\n");
+
 	edfvd_pre_processing(&task_set);
 	printf("Task set preprocessed.\n");
 
@@ -270,11 +275,6 @@ restart:
 
 	edfvd_start_tasks(&task_set);
 	printf("Task set started.\n");
-
-	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
-	edfvd_copy_task_set_to_map(&task_set);
-	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
-	printf("EDF-VD scheduler loaded and attached.\n");
 
 	printf("Press Ctrl+C to exit.\n");
 	while (!exit_req && !UEI_EXITED(skel, uei)) {
