@@ -26,7 +26,6 @@ const char help_fmt[] = "An EDF-VD scheduler.\n"
 
 static bool verbose;
 static volatile int exit_req;
-static struct edfvd_task_set task_set;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 			   va_list args)
@@ -237,6 +236,7 @@ int main(int argc, char **argv)
 	struct bpf_link *link;
 	u32 opt;
 	u64 ecode;
+	struct edfvd_task_set task_set;
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sigint_handler);
