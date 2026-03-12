@@ -26,6 +26,8 @@ const char help_fmt[] = "An EDF-VD scheduler.\n"
 
 static bool verbose;
 static volatile int exit_req;
+static int task_ctx_map_fd;
+pthread_t pthreads[MAX_TASKS];
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 			   va_list args)
@@ -123,6 +125,23 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 
 void edfvd_copy_task_to_map(struct edfvd_task *task)
 {
+	struct task_ctx tctx = {
+		.task_nr = task->task_nr,
+		.criticality = task->criticality,
+		.period_ms = task->period_ms,
+		.modified_period_ms = task->modified_period_ms,
+		.wcet_ms_lo = task->wcet_ms_lo,
+		.wcet_ms_hi = task->wcet_ms_hi,
+		.tid = task->tid,
+		.dummy = 0,
+	};
+	int err = bpf_map_update_elem(task_ctx_map_fd, &task->tid, &tctx,
+				      BPF_ANY);
+	if (err) {
+		fprintf(stderr, "Failed to update task ctx for pid %d\n",
+			task->tid);
+		exit(EXIT_FAILURE);
+	}
 	return;
 }
 
@@ -198,7 +217,7 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 		struct edfvd_task *task = &ts->tasks[i];
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
-		if (pthread_create(&task->thread, &attr, dummy_task, task) !=
+		if (pthread_create(&pthreads[i], &attr, dummy_task, task) !=
 		    0) {
 			fprintf(stderr,
 				"Failed to create thread for task %lu\n",
@@ -213,7 +232,7 @@ void edfvd_stop_tasks(struct edfvd_task_set *ts)
 {
 	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
-		pthread_cancel(task->thread);
+		pthread_cancel(pthreads[i]);
 	}
 	return;
 }
@@ -265,6 +284,7 @@ restart:
 	}
 
 	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
+	task_ctx_map_fd = bpf_map__fd(skel->maps.task_ctx);
 	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
 	printf("EDF-VD scheduler loaded and attached.\n");
 
