@@ -132,14 +132,14 @@ void edfvd_copy_task_to_map(struct edfvd_task *task)
 		.modified_period_ms = task->modified_period_ms,
 		.wcet_ms_lo = task->wcet_ms_lo,
 		.wcet_ms_hi = task->wcet_ms_hi,
-		.tid = task->tid,
+		.pid = task->pid,
 		.dummy = 0,
 	};
-	int err = bpf_map_update_elem(task_ctx_map_fd, &task->tid, &tctx,
+	int err = bpf_map_update_elem(task_ctx_map_fd, &task->pid, &tctx,
 				      BPF_ANY);
 	if (err) {
 		fprintf(stderr, "Failed to update task ctx for pid %d\n",
-			task->tid);
+			task->pid);
 		exit(EXIT_FAILURE);
 	}
 	return;
@@ -178,12 +178,12 @@ void *dummy_task(void *arg)
 	struct timespec next_job_release;
 	u64 job_count = 0;
 
-	pid_t tid = syscall(SYS_gettid);
-	task->tid = tid;
+	pid_t pid = syscall(SYS_getpid);
+	task->pid = pid;
 	edfvd_copy_task_to_map(task);
 
 	struct sched_param param = { .sched_priority = 0 };
-	if (sched_setscheduler(tid, SCHED_EXT, &param) != 0) {
+	if (sched_setscheduler(pid, SCHED_EXT, &param) != 0) {
 		fprintf(stderr, "Failed to set SCHED_EXT for task %lu\n",
 			task->task_nr);
 		exit(EXIT_FAILURE);
