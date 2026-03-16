@@ -207,6 +207,12 @@ void *dummy_task(void *arg)
 		// Calculate absolute next release time
 		next_job_release.tv_sec += task->period_ms / 1000;
 		next_job_release.tv_nsec += (task->period_ms % 1000) * 1000000;
+		if (next_job_release.tv_nsec >= 1000000000) {
+			next_job_release.tv_sec +=
+				next_job_release.tv_nsec / 1000000000;
+			next_job_release.tv_nsec =
+				next_job_release.tv_nsec % 1000000000;
+		}
 		job_count++;
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
 				&next_job_release, NULL);
