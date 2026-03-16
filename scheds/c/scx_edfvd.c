@@ -183,6 +183,7 @@ void *dummy_task(void *arg)
 	pid_t pid = syscall(
 		SYS_gettid); /* Thread ID, but called pid in task_struct */
 
+	/* Provide necessary task information to the scheduler */
 	edfvd_copy_task_to_map(task);
 
 	struct sched_param param = { .sched_priority = 0 };

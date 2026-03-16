@@ -28,7 +28,9 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 			tctx->modified_period_ms, tctx->wcet_ms_lo,
 			tctx->wcet_ms_hi);
 	} else {
-		bpf_printk("No task ctx found for pid %d\n", p->pid);
+		bpf_printk(
+			"No task ctx found for pid %d. Have you provided task context through bpf_map_update_elem()?\n",
+			p->pid);
 	}
 	return 0;
 }
