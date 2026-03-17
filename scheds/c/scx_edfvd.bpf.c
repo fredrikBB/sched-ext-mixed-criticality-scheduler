@@ -6,6 +6,8 @@ char _license[] SEC("license") = "GPL";
 
 UEI_DEFINE(uei);
 
+static bool in_hi_crit_mode = false;
+
 /* Map to store task contexts with pid as key */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -203,7 +205,7 @@ static struct task_ctx *edf_tree_pop_lo(void)
 	struct bpf_rb_node *rb_node = bpf_rbtree_first(&lo_tree);
 	if (!rb_node) {
 		bpf_spin_unlock(&lo_tree_lock);
-		bpf_printk("LO tree is empty on pop\n");
+		/* Empty tree */
 		return NULL;
 	}
 	rb_node = bpf_rbtree_remove(&lo_tree, rb_node);
@@ -234,7 +236,7 @@ static struct task_ctx *edf_tree_pop_hi(void)
 	struct bpf_rb_node *rb_node = bpf_rbtree_first(&hi_tree);
 	if (!rb_node) {
 		bpf_spin_unlock(&hi_tree_lock);
-		bpf_printk("HI tree is empty on pop\n");
+		/* Empty tree */
 		return NULL;
 	}
 	rb_node = bpf_rbtree_remove(&hi_tree, rb_node);
@@ -253,6 +255,64 @@ static struct task_ctx *edf_tree_pop_hi(void)
 	bpf_obj_drop(node);
 
 	return tctx;
+}
+
+s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
+{
+	u64 modified_deadline;
+	u64 unmodified_deadline;
+	u64 now_ns = bpf_ktime_get_ns();
+
+	pid_t pid = p->pid;
+	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
+	if (!tctx) {
+		bpf_printk(
+			"Failed to enqueue: No task context found for pid %d\n",
+			pid);
+		return -1;
+	}
+
+	modified_deadline = now_ns + tctx->modified_period_ms * 1000000;
+	unmodified_deadline = now_ns + tctx->period_ms * 1000000;
+
+	tctx->deadline_ns_lo = modified_deadline;
+	edf_tree_insert_lo(tctx);
+
+	if (tctx->criticality == HI) {
+		tctx->deadline_ns_hi = unmodified_deadline;
+		return edf_tree_insert_hi(tctx);
+	}
+	return 0;
+}
+
+s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
+{
+	if (!in_hi_crit_mode) {
+		struct task_ctx *tctx = edf_tree_pop_lo();
+		if (!tctx)
+			return -1;
+		pid_t pid = tctx->pid;
+		if (tctx->criticality == HI)
+			edf_tree_pop_hi(); /* Remove HI-criticality duplicate */
+		struct task_struct *next = bpf_task_from_pid(pid);
+		if (!next)
+			return -1;
+		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, SCX_SLICE_INF, 0);
+		bpf_task_release(next);
+		return 0;
+	}
+	if (in_hi_crit_mode) {
+		struct task_ctx *tctx = edf_tree_pop_hi();
+		if (!tctx)
+			return -1;
+		pid_t pid = tctx->pid;
+		struct task_struct *next = bpf_task_from_pid(pid);
+		if (!next)
+			return -1;
+		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, SCX_SLICE_INF, 0);
+		bpf_task_release(next);
+	}
+	return 0;
 }
 
 s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
@@ -283,6 +343,8 @@ void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 
 /* clang-format off */
 SCX_OPS_DEFINE(edfvd_ops,
+	.enqueue =		(void *)edfvd_enqueue,
+	.dispatch =		(void *)edfvd_dispatch,
 	.enable =		(void *)edfvd_enable,
 	.exit =			(void *)edfvd_exit,
 	.flags =		SCX_OPS_SWITCH_PARTIAL,
