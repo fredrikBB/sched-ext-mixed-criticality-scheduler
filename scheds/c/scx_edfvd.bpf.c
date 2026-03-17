@@ -17,14 +17,14 @@ struct {
 struct edf_node_lo {
 	struct bpf_rb_node rb_node;
 	u64 deadline_ns;
-	s32 pid;
+	pid_t pid;
 	u8 queued; /* To avoid duplicate insertions */
 };
 
 struct edf_node_hi {
 	struct bpf_rb_node rb_node;
 	u64 deadline_ns;
-	s32 pid;
+	pid_t pid;
 	u8 queued;
 };
 
@@ -39,14 +39,14 @@ private(EDFVD_HI_TREE) struct bpf_rb_root hi_tree
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_TASKS);
-	__type(key, s32);
+	__type(key, pid_t);
 	__type(value, struct edf_node_lo);
 } edf_map_lo SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_TASKS);
-	__type(key, s32);
+	__type(key, pid_t);
 	__type(value, struct edf_node_hi);
 } edf_map_hi SEC(".maps");
 
@@ -186,7 +186,7 @@ static struct task_ctx *edf_tree_pop_lo(void)
 {
 	struct edf_node_lo *node;
 	struct task_ctx *tctx;
-	s32 pid;
+	pid_t pid;
 
 	bpf_spin_lock(&lo_tree_lock);
 	struct bpf_rb_node *rb_node = bpf_rbtree_first(&lo_tree);
@@ -217,7 +217,7 @@ static struct task_ctx *edf_tree_pop_hi(void)
 {
 	struct edf_node_hi *node;
 	struct task_ctx *tctx;
-	s32 pid;
+	pid_t pid;
 
 	bpf_spin_lock(&hi_tree_lock);
 	struct bpf_rb_node *rb_node = bpf_rbtree_first(&hi_tree);
