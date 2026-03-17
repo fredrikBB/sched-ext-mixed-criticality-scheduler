@@ -35,7 +35,9 @@ struct task_ctx {
 	u64 wcet_ms_hi;
 
 	/* Additional fields for EDF-VD algorithm */
-	u64 dummy;
+	pid_t pid;
+	u64 deadline_ns_lo;
+	u64 deadline_ns_hi;
 };
 
 #endif // __SCX_EDFVD_COMMON_H

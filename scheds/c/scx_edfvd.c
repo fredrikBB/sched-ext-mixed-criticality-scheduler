@@ -138,7 +138,7 @@ void edfvd_copy_task_to_map(struct edfvd_task *task)
 		.modified_period_ms = task->modified_period_ms,
 		.wcet_ms_lo = task->wcet_ms_lo,
 		.wcet_ms_hi = task->wcet_ms_hi,
-		.dummy = 0,
+		.pid = pid,
 	};
 	int err = bpf_map_update_elem(task_ctx_map_fd, &pid, &tctx, BPF_ANY);
 	if (err) {
