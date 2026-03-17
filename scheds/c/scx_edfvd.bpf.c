@@ -14,68 +14,64 @@ struct {
 	__type(value, struct task_ctx);
 } task_ctx SEC(".maps");
 
-struct edf_lo_node {
+struct edf_node_lo {
 	struct bpf_rb_node rb_node;
 	u64 deadline_ns;
 	s32 pid;
+	u8 queued; /* To avoid duplicate insertions */
 };
 
-struct edf_hi_node {
+struct edf_node_hi {
 	struct bpf_rb_node rb_node;
 	u64 deadline_ns;
 	s32 pid;
+	u8 queued;
 };
 
 private(EDFVD_LO_TREE) struct bpf_spin_lock lo_tree_lock;
 private(EDFVD_LO_TREE) struct bpf_rb_root lo_tree
-	__contains(edf_lo_node, rb_node);
+	__contains(edf_node_lo, rb_node);
 
 private(EDFVD_HI_TREE) struct bpf_spin_lock hi_tree_lock;
 private(EDFVD_HI_TREE) struct bpf_rb_root hi_tree
-	__contains(edf_hi_node, rb_node);
-
-struct edf_lo_node_stash {
-	struct edf_lo_node __kptr *node;
-};
-
-struct edf_hi_node_stash {
-	struct edf_hi_node __kptr *node;
-};
+	__contains(edf_node_hi, rb_node);
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_TASKS);
 	__type(key, s32);
-	__type(value, struct edf_lo_node_stash);
-} lo_node_stash SEC(".maps");
+	__type(value, struct edf_node_lo);
+} edf_map_lo SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_TASKS);
 	__type(key, s32);
-	__type(value, struct edf_hi_node_stash);
-} hi_node_stash SEC(".maps");
+	__type(value, struct edf_node_hi);
+} edf_map_hi SEC(".maps");
 
 static bool edf_tree_less_lo(struct bpf_rb_node *a, const struct bpf_rb_node *b)
 {
-	struct edf_lo_node *node_a, *node_b;
-	node_a = container_of(a, struct edf_lo_node, rb_node);
-	node_b = container_of(b, struct edf_lo_node, rb_node);
+	struct edf_node_lo *node_a, *node_b;
+	node_a = container_of(a, struct edf_node_lo, rb_node);
+	node_b = container_of(b, struct edf_node_lo, rb_node);
 	return node_a->deadline_ns < node_b->deadline_ns;
 }
 
 static bool edf_tree_less_hi(struct bpf_rb_node *a, const struct bpf_rb_node *b)
 {
-	struct edf_hi_node *node_a, *node_b;
-	node_a = container_of(a, struct edf_hi_node, rb_node);
-	node_b = container_of(b, struct edf_hi_node, rb_node);
+	struct edf_node_hi *node_a, *node_b;
+	node_a = container_of(a, struct edf_node_hi, rb_node);
+	node_b = container_of(b, struct edf_node_hi, rb_node);
 	return node_a->deadline_ns < node_b->deadline_ns;
 }
 
+/* Duplicate insertions updates node */
 static s32 edf_tree_insert_lo(struct task_ctx *tctx)
 {
-	struct edf_lo_node_stash empty = {}, *stash;
-	struct edf_lo_node *node;
+	struct edf_node_lo node_val = {};
+	struct edf_node_lo *cached;
+	struct edf_node_lo *node;
 	pid_t pid;
 	long ret;
 
@@ -86,30 +82,41 @@ static s32 edf_tree_insert_lo(struct task_ctx *tctx)
 
 	pid = tctx->pid;
 
-	ret = bpf_map_update_elem(&lo_node_stash, &pid, &empty, BPF_NOEXIST);
-	if (ret && ret != -EEXIST) {
-		bpf_printk("Failed LO stash create for pid %d\n", pid);
-		return -1;
-	}
+	cached = bpf_map_lookup_elem(&edf_map_lo, &pid);
+	if (cached) {
+		cached->deadline_ns = tctx->deadline_ns_lo;
+		cached->pid = pid;
+		if (cached->queued)
+			return 0;
+		cached->queued = 1;
+	} else {
+		node_val.deadline_ns = tctx->deadline_ns_lo;
+		node_val.pid = pid;
+		node_val.queued = 1;
 
-	stash = bpf_map_lookup_elem(&lo_node_stash, &pid);
-	if (!stash) {
-		bpf_printk("Failed LO stash lookup for pid %d\n", pid);
-		return -1;
-	}
+		ret = bpf_map_update_elem(&edf_map_lo, &pid, &node_val,
+					  BPF_NOEXIST);
+		if (ret) {
+			bpf_printk("Failed LO map update for pid %d\n", pid);
+			return -1;
+		}
 
-	node = bpf_kptr_xchg(&stash->node, NULL);
-	if (!node) {
-		node = bpf_obj_new(struct edf_lo_node);
-		if (!node) {
-			bpf_printk("Failed LO node allocation for pid %d\n",
-				   pid);
+		cached = bpf_map_lookup_elem(&edf_map_lo, &pid);
+		if (!cached) {
+			bpf_printk("Failed LO map lookup for pid %d\n", pid);
 			return -1;
 		}
 	}
 
-	node->deadline_ns = tctx->deadline_ns_lo;
-	node->pid = pid;
+	node = bpf_obj_new(struct edf_node_lo);
+	if (!node) {
+		bpf_printk("Failed LO node allocation for pid %d\n", pid);
+		return -1;
+	}
+
+	node->deadline_ns = cached->deadline_ns;
+	node->pid = cached->pid;
+	node->queued = 1;
 
 	bpf_spin_lock(&lo_tree_lock);
 	bpf_rbtree_add(&lo_tree, &node->rb_node, edf_tree_less_lo);
@@ -117,10 +124,12 @@ static s32 edf_tree_insert_lo(struct task_ctx *tctx)
 	return 0;
 }
 
+/* Duplicate insertions updates node */
 static s32 edf_tree_insert_hi(struct task_ctx *tctx)
 {
-	struct edf_hi_node_stash empty = {}, *stash;
-	struct edf_hi_node *node;
+	struct edf_node_hi node_val = {};
+	struct edf_node_hi *cached;
+	struct edf_node_hi *node;
 	pid_t pid;
 	long ret;
 
@@ -131,30 +140,41 @@ static s32 edf_tree_insert_hi(struct task_ctx *tctx)
 
 	pid = tctx->pid;
 
-	ret = bpf_map_update_elem(&hi_node_stash, &pid, &empty, BPF_NOEXIST);
-	if (ret && ret != -EEXIST) {
-		bpf_printk("Failed HI stash create for pid %d\n", pid);
-		return -1;
-	}
+	cached = bpf_map_lookup_elem(&edf_map_hi, &pid);
+	if (cached) {
+		cached->deadline_ns = tctx->deadline_ns_hi;
+		cached->pid = pid;
+		if (cached->queued)
+			return 0;
+		cached->queued = 1;
+	} else {
+		node_val.deadline_ns = tctx->deadline_ns_hi;
+		node_val.pid = pid;
+		node_val.queued = 1;
 
-	stash = bpf_map_lookup_elem(&hi_node_stash, &pid);
-	if (!stash) {
-		bpf_printk("Failed HI stash lookup for pid %d\n", pid);
-		return -1;
-	}
+		ret = bpf_map_update_elem(&edf_map_hi, &pid, &node_val,
+					  BPF_NOEXIST);
+		if (ret) {
+			bpf_printk("Failed HI map update for pid %d\n", pid);
+			return -1;
+		}
 
-	node = bpf_kptr_xchg(&stash->node, NULL);
-	if (!node) {
-		node = bpf_obj_new(struct edf_hi_node);
-		if (!node) {
-			bpf_printk("Failed HI node allocation for pid %d\n",
-				   pid);
+		cached = bpf_map_lookup_elem(&edf_map_hi, &pid);
+		if (!cached) {
+			bpf_printk("Failed HI map lookup for pid %d\n", pid);
 			return -1;
 		}
 	}
 
-	node->deadline_ns = tctx->deadline_ns_hi;
-	node->pid = pid;
+	node = bpf_obj_new(struct edf_node_hi);
+	if (!node) {
+		bpf_printk("Failed HI node allocation for pid %d\n", pid);
+		return -1;
+	}
+
+	node->deadline_ns = cached->deadline_ns;
+	node->pid = cached->pid;
+	node->queued = 1;
 
 	bpf_spin_lock(&hi_tree_lock);
 	bpf_rbtree_add(&hi_tree, &node->rb_node, edf_tree_less_hi);
@@ -164,8 +184,7 @@ static s32 edf_tree_insert_hi(struct task_ctx *tctx)
 
 static struct task_ctx *edf_tree_pop_lo(void)
 {
-	struct edf_lo_node *node;
-	struct edf_lo_node_stash *stash;
+	struct edf_node_lo *node;
 	struct task_ctx *tctx;
 	s32 pid;
 
@@ -182,27 +201,21 @@ static struct task_ctx *edf_tree_pop_lo(void)
 	if (!rb_node)
 		return NULL;
 
-	node = container_of(rb_node, struct edf_lo_node, rb_node);
+	node = container_of(rb_node, struct edf_node_lo, rb_node);
 	pid = node->pid;
 
 	tctx = bpf_map_lookup_elem(&task_ctx, &pid);
-
-	stash = bpf_map_lookup_elem(&lo_node_stash, &pid);
-	if (stash) {
-		struct edf_lo_node *old = bpf_kptr_xchg(&stash->node, node);
-		if (old)
-			bpf_obj_drop(old);
-	} else {
-		bpf_obj_drop(node);
-	}
+	struct edf_node_lo *cached = bpf_map_lookup_elem(&edf_map_lo, &pid);
+	if (cached)
+		cached->queued = 0;
+	bpf_obj_drop(node);
 
 	return tctx;
 }
 
 static struct task_ctx *edf_tree_pop_hi(void)
 {
-	struct edf_hi_node *node;
-	struct edf_hi_node_stash *stash;
+	struct edf_node_hi *node;
 	struct task_ctx *tctx;
 	s32 pid;
 
@@ -219,19 +232,14 @@ static struct task_ctx *edf_tree_pop_hi(void)
 	if (!rb_node)
 		return NULL;
 
-	node = container_of(rb_node, struct edf_hi_node, rb_node);
+	node = container_of(rb_node, struct edf_node_hi, rb_node);
 	pid = node->pid;
 
 	tctx = bpf_map_lookup_elem(&task_ctx, &pid);
-
-	stash = bpf_map_lookup_elem(&hi_node_stash, &pid);
-	if (stash) {
-		struct edf_hi_node *old = bpf_kptr_xchg(&stash->node, node);
-		if (old)
-			bpf_obj_drop(old);
-	} else {
-		bpf_obj_drop(node);
-	}
+	struct edf_node_hi *cached = bpf_map_lookup_elem(&edf_map_hi, &pid);
+	if (cached)
+		cached->queued = 0;
+	bpf_obj_drop(node);
 
 	return tctx;
 }
