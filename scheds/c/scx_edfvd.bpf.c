@@ -283,8 +283,8 @@ void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 
 /* clang-format off */
 SCX_OPS_DEFINE(edfvd_ops,
-	.exit =			(void *)edfvd_exit,
 	.enable =		(void *)edfvd_enable,
+	.exit =			(void *)edfvd_exit,
 	.flags =		SCX_OPS_SWITCH_PARTIAL,
 	.name =			"edfvd");
 /* clang-format on */
