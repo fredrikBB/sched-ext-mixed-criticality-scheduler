@@ -6,6 +6,7 @@ char _license[] SEC("license") = "GPL";
 
 UEI_DEFINE(uei);
 
+/* Map to store task contexts with pid as key */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_TASKS);
@@ -13,6 +14,16 @@ struct {
 	__type(key, s32);
 	__type(value, struct task_ctx);
 } task_ctx SEC(".maps");
+
+/*
+ * EDF-VD run queues:
+ * - lo_tree: Runnable tasks for LO-criticality mode, ordered by earliest deadline_ns.
+ * - hi_tree: Runnable tasks for HI-criticality mode, ordered by earliest deadline_ns.
+ *
+ * The tree stores allocated edf_node_* objects internally.
+ * Insert and pop operations are provided and operates on task_ctx objects.
+ * Duplicate insertions updates the node, and does not create a new node.
+ */
 
 struct edf_node_lo {
 	struct bpf_rb_node rb_node;
@@ -25,7 +36,7 @@ struct edf_node_hi {
 	struct bpf_rb_node rb_node;
 	u64 deadline_ns;
 	pid_t pid;
-	u8 queued;
+	u8 queued; /* To avoid duplicate insertions */
 };
 
 private(EDFVD_LO_TREE) struct bpf_spin_lock lo_tree_lock;
