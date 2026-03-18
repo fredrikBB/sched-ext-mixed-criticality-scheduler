@@ -299,7 +299,6 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 			return -1;
 		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, SCX_SLICE_INF, 0);
 		bpf_task_release(next);
-		return 0;
 	}
 	if (in_hi_crit_mode) {
 		struct task_ctx *tctx = edf_tree_pop_hi();
