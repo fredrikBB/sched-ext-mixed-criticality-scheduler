@@ -19,7 +19,7 @@ struct {
 
 /*
  * Map to store deadlines for running tasks.
- * Needed to enable the preemption of running tasks.
+ * Needed to enable the preemption logic of running tasks.
  * The run queues (lo_tree and hi_tree) does not store running tasks
  * (only runnable ones).
  */
@@ -270,6 +270,7 @@ static struct task_ctx *edf_tree_pop_hi(void)
 	return tctx;
 }
 
+/* Enqueue the task by inserting into the appropriate EDF tree(s) */
 s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	pid_t pid = p->pid;
@@ -290,6 +291,10 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	return 0;
 }
 
+/*
+ * Pop a task from the appropriate EDF tree and dispatch it into the 
+ * local dispatch queue (DSQ) of the calling CPU.
+ */
 s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 {
 	if (!in_hi_crit_mode) {
@@ -319,6 +324,10 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 	return 0;
 }
 
+/*
+ * If it is a new job, calculate and update new deadline, and kick CPU with
+ * highest registered deadline if the new deadline is earlier.
+ */
 s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 {
 	pid_t pid = p->pid;
@@ -364,6 +373,7 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	return 0;
 }
 
+/* Detect if job is completed. Necessary for deadline logic. */
 s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 {
 	if (!(deq_flags & SCX_DEQ_SLEEP))
@@ -379,6 +389,10 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 	return 0;
 }
 
+/*
+ * Update CPU deadlines map with the deadline of the running task.
+ * Necessary for preemption logic.
+ */
 s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 {
 	u32 cpu = bpf_get_smp_processor_id();
@@ -392,6 +406,10 @@ s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 	return 0;
 }
 
+/*
+ * Update CPU deadlines map with a sentinel value when a task stops running.
+ * Necessary for preemption logic.
+ */
 s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 {
 	u32 cpu = bpf_get_smp_processor_id();
@@ -400,6 +418,7 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 	return 0;
 }
 
+/* Initialize task context */
 s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
@@ -424,6 +443,7 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 	return 0;
 }
 
+/* Initialize the EDF-VD scheduler */
 s32 BPF_STRUCT_OPS(edfvd_init)
 {
 	bpf_printk("EDF-VD scheduler initialized with %d possible CPUs\n",
@@ -439,6 +459,7 @@ s32 BPF_STRUCT_OPS(edfvd_init)
 	return 0;
 }
 
+/* Shutdown the EDF-VD scheduler */
 void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 {
 	UEI_RECORD(uei, ei);
