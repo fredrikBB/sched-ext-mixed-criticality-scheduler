@@ -2,6 +2,7 @@
 #define __SCX_EDFVD_COMMON_H
 
 #define MAX_TASKS 128
+#define NO_CPUS 4
 #define LO 0
 #define HI 1
 
@@ -36,8 +37,8 @@ struct task_ctx {
 
 	/* Additional fields for EDF-VD algorithm */
 	pid_t pid;
-	u64 deadline_ns_lo;
-	u64 deadline_ns_hi;
+	u64 deadline_ns_lo; /* Deadline in LO-criticality mode */
+	u64 deadline_ns_hi; /* Deadline in HI-criticality mode */
 	bool new_job; /* Used for deadline logic */
 	u64 job_count; /* For debugging */
 };

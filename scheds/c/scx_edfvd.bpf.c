@@ -18,6 +18,19 @@ struct {
 } task_ctx SEC(".maps");
 
 /*
+ * Map to store deadlines for running tasks.
+ * Needed to enable the preemption of running tasks.
+ * The run queues (lo_tree and hi_tree) does not store running tasks
+ * (only runnable ones).
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(key_size, sizeof(u32)); /* CPU ID */
+	__uint(value_size, sizeof(u64)); /* Deadline (ns) */
+	__uint(max_entries, NO_CPUS);
+} cpu_deadlines SEC(".maps");
+
+/*
  * EDF-VD run queues:
  * - lo_tree: Runnable tasks for LO-criticality mode, ordered by earliest deadline_ns.
  * - hi_tree: Runnable tasks for HI-criticality mode, ordered by earliest deadline_ns.
@@ -319,23 +332,35 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	if (!tctx->new_job)
 		return 0;
 
+	/* Wakeup of new job! */
 	tctx->new_job = false;
 
-	/* Wakeup of new job, set new deadline */
+	/* Set new deadline */
 	u64 modified_deadline;
 	u64 unmodified_deadline;
 	u64 now_ns = bpf_ktime_get_ns();
-
 	/* For LO-criticality tasks modified period = period (see pre-processing) */
 	modified_deadline = now_ns + tctx->modified_period_ms * 1000000;
 	unmodified_deadline = now_ns + tctx->period_ms * 1000000;
-
 	tctx->deadline_ns_lo = modified_deadline;
-
 	if (tctx->criticality == HI) {
 		tctx->deadline_ns_hi = unmodified_deadline;
 	}
 
+	/* Kick CPU with highest registered deadline if new deadline is earlier */
+	u32 cpu_with_highest_deadline = 0;
+	u64 highest_deadline = 0;
+	for (u32 cpu = 0; cpu < NO_CPUS; cpu++) {
+		u64 *cpu_deadline_ns =
+			bpf_map_lookup_elem(&cpu_deadlines, &cpu);
+		if (*cpu_deadline_ns > highest_deadline) {
+			highest_deadline = *cpu_deadline_ns;
+			cpu_with_highest_deadline = cpu;
+		}
+	}
+	if (modified_deadline < highest_deadline) {
+		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
+	}
 	return 0;
 }
 
@@ -351,6 +376,27 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 		return -1;
 	tctx->new_job = true;
 	tctx->job_count++;
+	return 0;
+}
+
+s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
+{
+	u32 cpu = bpf_get_smp_processor_id();
+	pid_t pid = p->pid;
+	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
+	if (!tctx)
+		return -1;
+	u64 deadline_ns = in_hi_crit_mode ? tctx->deadline_ns_hi :
+					    tctx->deadline_ns_lo;
+	bpf_map_update_elem(&cpu_deadlines, &cpu, &deadline_ns, BPF_ANY);
+	return 0;
+}
+
+s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
+{
+	u32 cpu = bpf_get_smp_processor_id();
+	u64 sentinel = ~0ULL;
+	bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
 	return 0;
 }
 
@@ -378,6 +424,21 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 	return 0;
 }
 
+s32 BPF_STRUCT_OPS(edfvd_init)
+{
+	bpf_printk("EDF-VD scheduler initialized with %d possible CPUs\n",
+		   NO_CPUS);
+
+	/* Initilize cpu deadlines with maximum values */
+	u64 sentinel = ~0ULL;
+	u32 cpu = 0;
+	bpf_repeat(NO_CPUS)
+	{
+		bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
+	}
+	return 0;
+}
+
 void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 {
 	UEI_RECORD(uei, ei);
@@ -389,7 +450,10 @@ SCX_OPS_DEFINE(edfvd_ops,
 	.dispatch =		(void *)edfvd_dispatch,
 	.runnable =		(void *)edfvd_runnable,
 	.quiescent =	(void *)edfvd_quiescent,
+	.running =		(void *)edfvd_running,
+	.stopping =		(void *)edfvd_stopping,
 	.enable =		(void *)edfvd_enable,
+	.init =			(void *)edfvd_init,
 	.exit =			(void *)edfvd_exit,
 	.flags =		SCX_OPS_SWITCH_PARTIAL,
 	.name =			"edfvd");
