@@ -283,7 +283,8 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	}
 
 	/* Deadline is already calculated */
-	edf_tree_insert_lo(tctx);
+	if (!in_hi_crit_mode)
+		edf_tree_insert_lo(tctx);
 
 	if (tctx->criticality == HI)
 		return edf_tree_insert_hi(tctx);
