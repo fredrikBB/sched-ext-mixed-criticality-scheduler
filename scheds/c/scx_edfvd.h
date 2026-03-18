@@ -38,6 +38,8 @@ struct task_ctx {
 	pid_t pid;
 	u64 deadline_ns_lo;
 	u64 deadline_ns_hi;
+	bool new_job; /* Used for deadline logic */
+	u64 job_count; /* For debugging */
 };
 
 #endif // __SCX_EDFVD_COMMON_H

@@ -259,10 +259,6 @@ static struct task_ctx *edf_tree_pop_hi(void)
 
 s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 {
-	u64 modified_deadline;
-	u64 unmodified_deadline;
-	u64 now_ns = bpf_ktime_get_ns();
-
 	pid_t pid = p->pid;
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx) {
@@ -272,16 +268,12 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 		return -1;
 	}
 
-	modified_deadline = now_ns + tctx->modified_period_ms * 1000000;
-	unmodified_deadline = now_ns + tctx->period_ms * 1000000;
-
-	tctx->deadline_ns_lo = modified_deadline;
+	/* Deadline is already calculated */
 	edf_tree_insert_lo(tctx);
 
-	if (tctx->criticality == HI) {
-		tctx->deadline_ns_hi = unmodified_deadline;
+	if (tctx->criticality == HI)
 		return edf_tree_insert_hi(tctx);
-	}
+
 	return 0;
 }
 
@@ -314,24 +306,75 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 	return 0;
 }
 
+s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
+{
+	pid_t pid = p->pid;
+	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
+	if (!tctx)
+		return -1;
+
+	if (!(enq_flags & SCX_ENQ_WAKEUP))
+		return 0;
+
+	if (!tctx->new_job)
+		return 0;
+
+	tctx->new_job = false;
+
+	/* Wakeup of new job, set new deadline */
+	u64 modified_deadline;
+	u64 unmodified_deadline;
+	u64 now_ns = bpf_ktime_get_ns();
+
+	/* For LO-criticality tasks modified period = period (see pre-processing) */
+	modified_deadline = now_ns + tctx->modified_period_ms * 1000000;
+	unmodified_deadline = now_ns + tctx->period_ms * 1000000;
+
+	tctx->deadline_ns_lo = modified_deadline;
+
+	if (tctx->criticality == HI) {
+		tctx->deadline_ns_hi = unmodified_deadline;
+	}
+
+	return 0;
+}
+
+s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
+{
+	if (!(deq_flags & SCX_DEQ_SLEEP))
+		return 0;
+
+	/* Job completed, set flag for deadline logic */
+	pid_t pid = p->pid;
+	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
+	if (!tctx)
+		return -1;
+	tctx->new_job = true;
+	tctx->job_count++;
+	return 0;
+}
+
 s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
 	pid_t pid = p->pid;
 	bpf_printk("Task with pid %d entered SCX\n", pid);
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
-	if (tctx) {
-		bpf_printk(
-			"Task ctx for pid %d: task_nr=%llu, criticality=%s, period=%llu, modified_period=%llu, wcet_lo=%llu, wcet_hi=%llu\n",
-			p->pid, tctx->task_nr,
-			tctx->criticality == LO ? "LO" : "HI", tctx->period_ms,
-			tctx->modified_period_ms, tctx->wcet_ms_lo,
-			tctx->wcet_ms_hi);
-	} else {
+	if (!tctx) {
 		bpf_printk(
 			"No task ctx found for pid %d. Have you provided task context through bpf_map_update_elem()?\n",
 			p->pid);
+		return -1;
 	}
+	bpf_printk(
+		"Task ctx provided for pid %d: task_nr=%llu, criticality=%s, period=%llu, modified_period=%llu, wcet_lo=%llu, wcet_hi=%llu\n",
+		p->pid, tctx->task_nr, tctx->criticality == LO ? "LO" : "HI",
+		tctx->period_ms, tctx->modified_period_ms, tctx->wcet_ms_lo,
+		tctx->wcet_ms_hi);
+
+	tctx->pid = pid;
+	tctx->new_job = true;
+	tctx->job_count = 0;
 	return 0;
 }
 
@@ -344,6 +387,8 @@ void BPF_STRUCT_OPS(edfvd_exit, struct scx_exit_info *ei)
 SCX_OPS_DEFINE(edfvd_ops,
 	.enqueue =		(void *)edfvd_enqueue,
 	.dispatch =		(void *)edfvd_dispatch,
+	.runnable =		(void *)edfvd_runnable,
+	.quiescent =	(void *)edfvd_quiescent,
 	.enable =		(void *)edfvd_enable,
 	.exit =			(void *)edfvd_exit,
 	.flags =		SCX_OPS_SWITCH_PARTIAL,
