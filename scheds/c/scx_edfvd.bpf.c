@@ -289,7 +289,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, SCX_SLICE_INF, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, SCX_SLICE_INF, 0);
 		bpf_task_release(next);
 	}
 	if (in_hi_crit_mode) {
@@ -300,7 +300,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, SCX_SLICE_INF, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, SCX_SLICE_INF, 0);
 		bpf_task_release(next);
 	}
 	return 0;
