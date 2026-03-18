@@ -301,7 +301,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 	if (!in_hi_crit_mode) {
 		struct task_ctx *tctx = edf_tree_pop_lo();
 		if (!tctx)
-			return -1;
+			return 0;
 		pid_t pid = tctx->pid;
 		if (tctx->criticality == HI)
 			edf_tree_pop_hi(); /* Remove HI-criticality duplicate */
@@ -314,7 +314,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 	if (in_hi_crit_mode) {
 		struct task_ctx *tctx = edf_tree_pop_hi();
 		if (!tctx)
-			return -1;
+			return 0;
 		pid_t pid = tctx->pid;
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
