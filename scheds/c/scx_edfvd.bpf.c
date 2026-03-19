@@ -456,6 +456,7 @@ s32 BPF_STRUCT_OPS(edfvd_init)
 	bpf_repeat(NO_CPUS)
 	{
 		bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
+		cpu++;
 	}
 	return 0;
 }
