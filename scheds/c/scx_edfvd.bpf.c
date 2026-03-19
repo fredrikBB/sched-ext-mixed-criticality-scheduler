@@ -492,5 +492,6 @@ SCX_OPS_DEFINE(edfvd_ops,
 	.init =			(void *)edfvd_init,
 	.exit =			(void *)edfvd_exit,
 	.flags =		SCX_OPS_SWITCH_PARTIAL | SCX_OPS_ENQ_LAST,
+	.dispatch_max_batch = 1,
 	.name =			"edfvd");
 /* clang-format on */
