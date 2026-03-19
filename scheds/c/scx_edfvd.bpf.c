@@ -2,6 +2,8 @@
 #include <scx/common.bpf.h>
 #include "scx_edfvd.h"
 
+#define NS_PER_MS 1000000
+
 char _license[] SEC("license") = "GPL";
 
 UEI_DEFINE(uei);
@@ -363,8 +365,8 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	u64 unmodified_deadline;
 	u64 now_ns = bpf_ktime_get_ns();
 	/* For LO-criticality tasks modified period = period (see pre-processing) */
-	modified_deadline = now_ns + tctx->modified_period_ms * 1000000;
-	unmodified_deadline = now_ns + tctx->period_ms * 1000000;
+	modified_deadline = now_ns + tctx->modified_period_ms * NS_PER_MS;
+	unmodified_deadline = now_ns + tctx->period_ms * NS_PER_MS;
 	tctx->deadline_ns_lo = modified_deadline;
 	if (tctx->criticality == HI) {
 		tctx->deadline_ns_hi = unmodified_deadline;
