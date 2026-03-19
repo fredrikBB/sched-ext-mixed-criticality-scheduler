@@ -270,6 +270,19 @@ static struct task_ctx *edf_tree_pop_hi(void)
 	return tctx;
 }
 
+s32 transition_to_hi_crit_mode(void)
+{
+	in_hi_crit_mode = true;
+	bpf_repeat(MAX_TASKS)
+	{
+		struct task_ctx *tctx = edf_tree_pop_lo();
+		if (!tctx)
+			break;
+	}
+	bpf_printk("Entered to HI-criticality mode\n");
+	return 0;
+}
+
 /* Enqueue the task by inserting into the appropriate EDF tree(s) */
 s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 {
@@ -478,6 +491,6 @@ SCX_OPS_DEFINE(edfvd_ops,
 	.enable =		(void *)edfvd_enable,
 	.init =			(void *)edfvd_init,
 	.exit =			(void *)edfvd_exit,
-	.flags =		SCX_OPS_SWITCH_PARTIAL,
+	.flags =		SCX_OPS_SWITCH_PARTIAL | SCX_OPS_ENQ_LAST,
 	.name =			"edfvd");
 /* clang-format on */
