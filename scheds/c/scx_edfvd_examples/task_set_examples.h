@@ -57,6 +57,60 @@ struct edfvd_task_set
 					   },
 				   } };
 
+/* 
+ * Task set used in:
+ * Godabole, P., Samudre, A., Udmale, S.S. et al.
+ * Clustering-based task allocation for overhead reduction
+ * in multi-core mixed-critical systems. J Supercomput 81, 1549 (2025).
+ * https://doi.org/10.1007/s11227-025-08035-7
+ * 
+ * They simulate on a Linux system with homogenous quad-core architecture.
+ * 
+ * But the task set does not contain multiple WCETs for each task
+ */
+struct edfvd_task_set task_set_4 = {
+	.num_tasks = 5,
+	/* Instrumentation control system task set */
+	.tasks = { {
+			   /* Mode management */
+			   .task_nr = 1,
+			   .criticality = HI,
+			   .period_ms = 100,
+			   .wcet_ms_lo = 25,
+			   .wcet_ms_hi = 50, /* Not given in paper */
+		   },
+		   {
+			   /* Mission data management */
+			   .task_nr = 2,
+			   .criticality = LO,
+			   .period_ms = 200,
+			   .wcet_ms_lo = 12,
+		   },
+		   {
+			   /* Instrument monitoring */
+			   .task_nr = 3,
+			   .criticality = HI,
+			   .period_ms = 250,
+			   .wcet_ms_lo = 10,
+			   .wcet_ms_hi = 20, /* Not given in paper */
+		   },
+		   {
+			   /* Instrument configuration */
+			   .task_nr = 4,
+			   .criticality = LO,
+			   .period_ms = 200,
+			   .wcet_ms_lo = 42,
+		   },
+		   {
+			   /* Instrument processing */
+			   .task_nr = 5,
+			   .criticality = HI,
+			   .period_ms = 300,
+			   .wcet_ms_lo = 25,
+			   .wcet_ms_hi = 50, /* Not given in paper */
+		   } }
+};
+
 struct edfvd_task_set get_task_set(char *optarg)
 {
 	if (strcmp(optarg, "1") == 0) {
@@ -67,6 +121,9 @@ struct edfvd_task_set get_task_set(char *optarg)
 	}
 	if (strcmp(optarg, "3") == 0) {
 		return task_set_unschedulable;
+	}
+	if (strcmp(optarg, "4") == 0) {
+		return task_set_4;
 	}
 	fprintf(stderr, "Unknown task set: %s\n", optarg);
 	exit(EXIT_FAILURE);
