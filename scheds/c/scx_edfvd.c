@@ -159,7 +159,7 @@ void edfvd_copy_cpu_pinning_to_map()
 		return;
 
 	u8 pinned = 1;
-	for (int cpu = 0; cpu < NO_CPUS; cpu++) {
+	for (u32 cpu = 0; cpu < NO_CPUS; cpu++) {
 		u8 value = (cpu == target_cpu) ? pinned : 0;
 		int err = bpf_map_update_elem(cpu_pin_map_fd, &cpu, &value,
 					      BPF_ANY);

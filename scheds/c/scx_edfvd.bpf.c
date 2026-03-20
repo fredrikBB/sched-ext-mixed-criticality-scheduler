@@ -356,6 +356,11 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
  */
 s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 {
+	if (pin_to_single_cpu && cpu != target_cpu) {
+		/* If pinning is enabled, only dispatch to the target CPU */
+		return 0;
+	}
+
 	if (!in_hi_crit_mode) {
 		struct task_ctx *tctx = edf_tree_pop_lo();
 		if (!tctx)
@@ -426,13 +431,22 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	/* Kick CPU with highest registered deadline if new deadline is earlier */
 	u32 cpu_with_highest_deadline = 0;
 	u64 highest_deadline = 0;
-	for (u32 cpu = 0; cpu < NO_CPUS; cpu++) {
-		u64 *cpu_deadline_ns =
-			bpf_map_lookup_elem(&cpu_deadlines, &cpu);
-		if (*cpu_deadline_ns > highest_deadline) {
-			highest_deadline = *cpu_deadline_ns;
-			cpu_with_highest_deadline = cpu;
+	if (!pin_to_single_cpu) {
+		for (u32 cpu = 0; cpu < NO_CPUS; cpu++) {
+			u64 *cpu_deadline_ns =
+				bpf_map_lookup_elem(&cpu_deadlines, &cpu);
+			if (*cpu_deadline_ns > highest_deadline) {
+				highest_deadline = *cpu_deadline_ns;
+				cpu_with_highest_deadline = cpu;
+			}
 		}
+	}
+	if (pin_to_single_cpu) {
+		cpu_with_highest_deadline = target_cpu;
+		u64 *cpu_deadline_ns =
+			bpf_map_lookup_elem(&cpu_deadlines, &target_cpu);
+		if (cpu_deadline_ns)
+			highest_deadline = *cpu_deadline_ns;
 	}
 	if (modified_deadline < highest_deadline) {
 		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
