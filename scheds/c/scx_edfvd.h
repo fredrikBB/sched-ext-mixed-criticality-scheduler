@@ -40,6 +40,7 @@ struct task_ctx {
 	u64 deadline_ns_lo; /* Deadline in LO-criticality mode */
 	u64 deadline_ns_hi; /* Deadline in HI-criticality mode */
 	bool new_job; /* Used for deadline logic */
+	u64 job_start_exec_runtime_ns; /* sum_exec_runtime baseline at job start */
 	u64 job_count; /* For debugging */
 };
 

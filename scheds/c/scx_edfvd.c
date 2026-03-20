@@ -202,7 +202,11 @@ void *dummy_task(void *arg)
 			       current_time.tv_nsec);
 		}
 
-		do_variable_work(task, job_count, 0);
+		if (job_count > 10) {
+			do_variable_work(task, job_count, 1);
+		} else {
+			do_variable_work(task, job_count, 0);
+		}
 
 		// Calculate absolute next release time
 		next_job_release.tv_sec += task->period_ms / 1000;

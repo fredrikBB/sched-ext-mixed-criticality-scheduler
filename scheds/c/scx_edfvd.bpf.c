@@ -285,6 +285,34 @@ s32 transition_to_hi_crit_mode(void)
 	return 0;
 }
 
+static s32 edfvd_check_wcet_overrun(struct task_struct *p,
+				    struct task_ctx *tctx, const char *where)
+{
+	u64 now_exec_runtime_ns;
+	u64 start_exec_runtime_ns;
+	u64 consumed_exec_runtime_ns = 0;
+	u64 wcet_ns;
+
+	if (in_hi_crit_mode)
+		return 0;
+
+	now_exec_runtime_ns = p->se.sum_exec_runtime;
+	start_exec_runtime_ns = tctx->job_start_exec_runtime_ns;
+	if (now_exec_runtime_ns > start_exec_runtime_ns)
+		consumed_exec_runtime_ns =
+			now_exec_runtime_ns - start_exec_runtime_ns;
+
+	wcet_ns = tctx->wcet_ms_lo * NS_PER_MS;
+	if (consumed_exec_runtime_ns <= wcet_ns)
+		return 0;
+
+	bpf_printk("Task %d exceeded LO-criticality WCET, detected in %s\n",
+		   tctx->task_nr, where);
+	bpf_printk("Task %d consumed CPU runtime: %llu ns, WCET: %llu ns\n",
+		   tctx->task_nr, consumed_exec_runtime_ns, wcet_ns);
+	return 1;
+}
+
 /* Enqueue the task by inserting into the appropriate EDF tree(s) */
 s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 {
@@ -318,12 +346,13 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		if (!tctx)
 			return 0;
 		pid_t pid = tctx->pid;
+		u64 wcet_ns = tctx->wcet_ms_lo * NS_PER_MS;
 		if (tctx->criticality == HI)
 			edf_tree_pop_hi(); /* Remove HI-criticality duplicate */
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, SCX_SLICE_INF, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
 		bpf_task_release(next);
 	}
 	if (in_hi_crit_mode) {
@@ -331,18 +360,19 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		if (!tctx)
 			return 0;
 		pid_t pid = tctx->pid;
+		u64 wcet_ns = tctx->wcet_ms_hi * NS_PER_MS;
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, SCX_SLICE_INF, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
 		bpf_task_release(next);
 	}
 	return 0;
 }
 
 /*
- * If it is a new job, calculate and update new deadline, and kick CPU with
- * highest registered deadline if the new deadline is earlier.
+ * If it is a new job, calculate and update new deadline, set CPU runtime baseline,
+ * and kick CPU with highest registered deadline if the new deadline is earlier.
  */
 s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 {
@@ -359,6 +389,12 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 
 	/* Wakeup of new job! */
 	tctx->new_job = false;
+
+	/*
+	 * Set CPU runtime baseline for this new job.
+	 * Used to monitor if LO-criticality WCET is exceeded.
+	 */
+	tctx->job_start_exec_runtime_ns = p->se.sum_exec_runtime;
 
 	/* Set new deadline */
 	u64 modified_deadline;
@@ -395,13 +431,21 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 	if (!(deq_flags & SCX_DEQ_SLEEP))
 		return 0;
 
-	/* Job completed, set flag for deadline logic */
+	/* Job completed! */
 	pid_t pid = p->pid;
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx)
 		return -1;
+
+	/* Set flag for deadline logic */
 	tctx->new_job = true;
 	tctx->job_count++;
+
+	/* Check for LO-criticality WCET overrun */
+	s32 overrun = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
+	if (overrun)
+		transition_to_hi_crit_mode();
+
 	return 0;
 }
 
@@ -434,6 +478,22 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 	return 0;
 }
 
+/* Tick to monitor if running tasks break their LO-criticality WCET. */
+s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
+{
+	pid_t pid = p->pid;
+	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
+	if (!tctx)
+		return -1;
+	s32 ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
+	if (ret) {
+		transition_to_hi_crit_mode();
+		u32 cpu = bpf_get_smp_processor_id();
+		scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
+	}
+	return 0;
+}
+
 /* Initialize task context */
 s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 		   struct scx_init_task_args *args)
@@ -455,6 +515,7 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 
 	tctx->pid = pid;
 	tctx->new_job = true;
+	tctx->job_start_exec_runtime_ns = p->se.sum_exec_runtime;
 	tctx->job_count = 0;
 	return 0;
 }
@@ -490,6 +551,7 @@ SCX_OPS_DEFINE(edfvd_ops,
 	.quiescent =	(void *)edfvd_quiescent,
 	.running =		(void *)edfvd_running,
 	.stopping =		(void *)edfvd_stopping,
+	.tick = 		(void *)edfvd_tick,
 	.enable =		(void *)edfvd_enable,
 	.init =			(void *)edfvd_init,
 	.exit =			(void *)edfvd_exit,
