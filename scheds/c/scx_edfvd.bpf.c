@@ -10,6 +10,21 @@ UEI_DEFINE(uei);
 
 static bool in_hi_crit_mode = false;
 
+static bool pin_to_single_cpu = false;
+static int target_cpu = -1;
+
+/* 
+ * Map to receive CPU pinning information from userspace.
+ * If the tasks' affinity is not respected the BPF scheduler will
+ * throw an runtime error and exit.
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(value_size, sizeof(u8)); /* Pinned or not */
+	__uint(key_size, sizeof(u32)); /* CPU ID */
+	__uint(max_entries, NO_CPUS);
+} cpu_pin SEC(".maps");
+
 /* Map to store task contexts with pid as key */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -523,9 +538,6 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 /* Initialize the EDF-VD scheduler */
 s32 BPF_STRUCT_OPS(edfvd_init)
 {
-	bpf_printk("EDF-VD scheduler initialized with %d possible CPUs\n",
-		   NO_CPUS);
-
 	/* Initilize cpu deadlines with maximum values */
 	u64 sentinel = ~0ULL;
 	u32 cpu = 0;
@@ -533,6 +545,27 @@ s32 BPF_STRUCT_OPS(edfvd_init)
 	{
 		bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
 		cpu++;
+	}
+
+	/* Check CPU pinning information given by userspace */
+	cpu = 0;
+	bpf_repeat(NO_CPUS)
+	{
+		u8 *pinned = bpf_map_lookup_elem(&cpu_pin, &cpu);
+		if (pinned && *pinned == 1) {
+			pin_to_single_cpu = true;
+			target_cpu = cpu;
+		}
+		cpu++;
+	}
+	if (pin_to_single_cpu) {
+		bpf_printk(
+			"EDF-VD scheduler initialized with CPU pinning to CPU %d\n",
+			target_cpu);
+	} else {
+		bpf_printk(
+			"EDF-VD scheduler initialized with %d possible CPUs\n",
+			NO_CPUS);
 	}
 	return 0;
 }

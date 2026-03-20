@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -20,13 +21,19 @@
 #define SCHED_EXT 7
 #endif
 
-const char help_fmt[] = "An EDF-VD scheduler.\n"
-			"-v: verbose output\n"
-			"-t <task_set>: specify task set to use (e.g., -t 1)\n";
+const char help_fmt[] =
+	"An EDF-VD scheduler.\n"
+	"-v: verbose output\n"
+	"-t <task_set>: specify task set to use (e.g., -t 1)\n"
+	"-c <cpu>: pin all EDF-VD task threads to one CPU in [0, 3]\n"
+	"(default: use all 4 CPUs)\n";
 
 static bool verbose;
 static volatile int exit_req;
 static int task_ctx_map_fd;
+static int cpu_pin_map_fd;
+static bool pin_to_single_cpu;
+static int target_cpu = -1;
 pthread_t pthreads[MAX_TASKS];
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
@@ -40,6 +47,25 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 static void sigint_handler(int simple)
 {
 	exit_req = 1;
+}
+
+static int parse_cpu_arg(const char *optarg)
+{
+	char *end = NULL;
+	long parsed;
+	parsed = strtol(optarg, &end, 10);
+	if (end == optarg || *end != '\0') {
+		fprintf(stderr, "Invalid CPU id: %s\n", optarg);
+		return -1;
+	}
+
+	if (parsed < 0 || parsed >= NO_CPUS) {
+		fprintf(stderr, "CPU id %ld out of range [0, %d]\n", parsed,
+			NO_CPUS - 1);
+		return -1;
+	}
+
+	return (int)parsed;
 }
 
 /* 
@@ -122,6 +148,26 @@ void edfvd_pre_processing(struct edfvd_task_set *ts)
 			task->modified_period_ms = x * task->period_ms;
 		} else {
 			task->modified_period_ms = task->period_ms;
+		}
+	}
+	return;
+}
+
+void edfvd_copy_cpu_pinning_to_map()
+{
+	if (!pin_to_single_cpu)
+		return;
+
+	u8 pinned = 1;
+	for (int cpu = 0; cpu < NO_CPUS; cpu++) {
+		u8 value = (cpu == target_cpu) ? pinned : 0;
+		int err = bpf_map_update_elem(cpu_pin_map_fd, &cpu, &value,
+					      BPF_ANY);
+		if (err) {
+			fprintf(stderr,
+				"Failed to update CPU pinning for CPU %d\n",
+				cpu);
+			exit(EXIT_FAILURE);
 		}
 	}
 	return;
@@ -229,7 +275,21 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 	for (int i = 0; i < ts->num_tasks; i++) {
 		struct edfvd_task *task = &ts->tasks[i];
 		pthread_attr_t attr;
+		cpu_set_t cpuset;
 		pthread_attr_init(&attr);
+
+		if (pin_to_single_cpu) {
+			CPU_ZERO(&cpuset);
+			CPU_SET(target_cpu, &cpuset);
+			if (pthread_attr_setaffinity_np(&attr, sizeof(cpuset),
+							&cpuset) != 0) {
+				fprintf(stderr,
+					"Failed to set thread affinity to CPU %d for task %lu\n",
+					target_cpu, task->task_nr);
+				exit(EXIT_FAILURE);
+			}
+		}
+
 		if (pthread_create(&pthreads[i], &attr, dummy_task, task) !=
 		    0) {
 			fprintf(stderr,
@@ -237,6 +297,7 @@ void edfvd_start_tasks(struct edfvd_task_set *ts)
 				task->task_nr);
 			exit(EXIT_FAILURE);
 		}
+		pthread_attr_destroy(&attr);
 	}
 	return;
 }
@@ -276,7 +337,7 @@ int main(int argc, char **argv)
 restart:
 	skel = SCX_OPS_OPEN(edfvd_ops, scx_edfvd);
 	int task_set_selected = 0;
-	while ((opt = getopt(argc, argv, "vht:")) != -1) {
+	while ((opt = getopt(argc, argv, "vht:c:")) != -1) {
 		switch (opt) {
 		case 'v':
 			verbose = true;
@@ -285,8 +346,14 @@ restart:
 			task_set = get_task_set(optarg);
 			task_set_selected = 1;
 			break;
+		case 'c':
+			target_cpu = parse_cpu_arg(optarg);
+			if (target_cpu < 0)
+				exit(EXIT_FAILURE);
+			pin_to_single_cpu = true;
+			break;
 		default:
-			fprintf(stderr, help_fmt, basename(argv[0]));
+			fprintf(stderr, "%s", help_fmt);
 			return opt != 'h';
 		}
 	}
@@ -298,6 +365,12 @@ restart:
 
 	SCX_OPS_LOAD(skel, edfvd_ops, scx_edfvd, uei);
 	task_ctx_map_fd = bpf_map__fd(skel->maps.task_ctx);
+	cpu_pin_map_fd = bpf_map__fd(skel->maps.cpu_pin);
+	if (pin_to_single_cpu) {
+		printf("Pinning task threads to CPU %d.\n", target_cpu);
+		edfvd_copy_cpu_pinning_to_map();
+	} else
+		printf("Task threads can run on all %d CPUs.\n", NO_CPUS);
 	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
 	printf("EDF-VD scheduler loaded and attached.\n");
 
