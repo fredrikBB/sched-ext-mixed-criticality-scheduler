@@ -119,7 +119,7 @@ static s32 edf_tree_insert_lo(struct task_ctx *tctx)
 	long ret;
 
 	if (!tctx) {
-		bpf_printk("Failed LO insert: NULL task context\n");
+		bpf_printk("SCX: Failed LO insert: NULL task context\n");
 		return -1;
 	}
 
@@ -140,20 +140,22 @@ static s32 edf_tree_insert_lo(struct task_ctx *tctx)
 		ret = bpf_map_update_elem(&edf_map_lo, &pid, &node_val,
 					  BPF_NOEXIST);
 		if (ret) {
-			bpf_printk("Failed LO map update for pid %d\n", pid);
+			bpf_printk("SCX: Failed LO map update for pid %d\n",
+				   pid);
 			return -1;
 		}
 
 		cached = bpf_map_lookup_elem(&edf_map_lo, &pid);
 		if (!cached) {
-			bpf_printk("Failed LO map lookup for pid %d\n", pid);
+			bpf_printk("SCX: Failed LO map lookup for pid %d\n",
+				   pid);
 			return -1;
 		}
 	}
 
 	node = bpf_obj_new(struct edf_node_lo);
 	if (!node) {
-		bpf_printk("Failed LO node allocation for pid %d\n", pid);
+		bpf_printk("SCX: Failed LO node allocation for pid %d\n", pid);
 		return -1;
 	}
 
@@ -177,7 +179,7 @@ static s32 edf_tree_insert_hi(struct task_ctx *tctx)
 	long ret;
 
 	if (!tctx) {
-		bpf_printk("Failed HI insert: NULL task context\n");
+		bpf_printk("SCX: Failed HI insert: NULL task context\n");
 		return -1;
 	}
 
@@ -198,20 +200,22 @@ static s32 edf_tree_insert_hi(struct task_ctx *tctx)
 		ret = bpf_map_update_elem(&edf_map_hi, &pid, &node_val,
 					  BPF_NOEXIST);
 		if (ret) {
-			bpf_printk("Failed HI map update for pid %d\n", pid);
+			bpf_printk("SCX: Failed HI map update for pid %d\n",
+				   pid);
 			return -1;
 		}
 
 		cached = bpf_map_lookup_elem(&edf_map_hi, &pid);
 		if (!cached) {
-			bpf_printk("Failed HI map lookup for pid %d\n", pid);
+			bpf_printk("SCX: Failed HI map lookup for pid %d\n",
+				   pid);
 			return -1;
 		}
 	}
 
 	node = bpf_obj_new(struct edf_node_hi);
 	if (!node) {
-		bpf_printk("Failed HI node allocation for pid %d\n", pid);
+		bpf_printk("SCX: Failed HI node allocation for pid %d\n", pid);
 		return -1;
 	}
 
@@ -296,7 +300,7 @@ s32 transition_to_hi_crit_mode(void)
 		if (!tctx)
 			break;
 	}
-	bpf_printk("Entered to HI-criticality mode\n");
+	bpf_printk("SCX: Entered to HI-criticality mode\n");
 	return 0;
 }
 
@@ -321,10 +325,11 @@ static s32 edfvd_check_wcet_overrun(struct task_struct *p,
 	if (consumed_exec_runtime_ns <= wcet_ns)
 		return 0;
 
-	bpf_printk("Task %d exceeded LO-criticality WCET, detected in %s\n",
-		   tctx->task_nr, where);
-	bpf_printk("Task %d consumed CPU runtime: %llu ns, WCET: %llu ns\n",
-		   tctx->task_nr, consumed_exec_runtime_ns, wcet_ns);
+	bpf_printk("SCX: %s, Task %d exceeded LO-criticality WCET\n", where,
+		   tctx->task_nr);
+	bpf_printk(
+		"SCX: %s, Task %d consumed CPU runtime: %llu ns, WCET: %llu ns\n",
+		where, tctx->task_nr, consumed_exec_runtime_ns, wcet_ns);
 	return 1;
 }
 
@@ -335,7 +340,7 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx) {
 		bpf_printk(
-			"ops.enqueue(): Failed to enqueue: No task context found for pid %d\n",
+			"SCX: ops.enqueue(), Failed to enqueue: No task context found for pid %d\n",
 			pid);
 		return -1;
 	}
@@ -344,14 +349,14 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	if (!in_hi_crit_mode) {
 		edf_tree_insert_lo(tctx);
 		bpf_printk(
-			"ops.enqueue(): Enqueued task %d with deadline %llu ns to LO-criticality queue\n",
+			"SCX: ops.enqueue(), Enqueued task %d with deadline %llu ns to LO-criticality queue\n",
 			tctx->task_nr, tctx->deadline_ns_lo);
 	}
 
 	if (tctx->criticality == HI) {
 		return edf_tree_insert_hi(tctx);
 		bpf_printk(
-			"ops.enqueue(): Enqueued task %d with deadline %llu ns to HI-criticality queue\n",
+			"SCX: ops.enqueue(), Enqueued task %d with deadline %llu ns to HI-criticality queue\n",
 			tctx->task_nr, tctx->deadline_ns_hi);
 	}
 
@@ -382,7 +387,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 			return -1;
 		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
 		bpf_printk(
-			"ops.dispatch(): Dispatched task %d with deadline %llu ns to CPU %d in LO-criticality mode\n",
+			"SCX: ops.dispatch(), Dispatched task %d with deadline %llu ns to CPU %d in LO-criticality mode\n",
 			tctx->task_nr, tctx->deadline_ns_lo, cpu);
 		bpf_task_release(next);
 	}
@@ -397,7 +402,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 			return -1;
 		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
 		bpf_printk(
-			"ops.dispatch(): Dispatched task %d with deadline %llu ns to CPU %d in HI-criticality mode\n",
+			"SCX: ops.dispatch(), Dispatched task %d with deadline %llu ns to CPU %d in HI-criticality mode\n",
 			tctx->task_nr, tctx->deadline_ns_hi, cpu);
 		bpf_task_release(next);
 	}
@@ -422,6 +427,10 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 		return 0;
 
 	/* Wakeup of new job! */
+	bpf_printk(
+		"SCX: ops.runnable(), Detected wakeup of job %d for task %d\n",
+		tctx->job_count, tctx->task_nr);
+
 	tctx->new_job = false;
 
 	/*
@@ -480,6 +489,10 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 	if (!tctx)
 		return -1;
 
+	bpf_printk(
+		"SCX: ops.quiescent(), Detected completion of job %d for task %d\n",
+		tctx->job_count, tctx->task_nr);
+
 	/* Set flag for deadline logic */
 	tctx->new_job = true;
 	tctx->job_count++;
@@ -506,6 +519,10 @@ s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 	u64 deadline_ns = in_hi_crit_mode ? tctx->deadline_ns_hi :
 					    tctx->deadline_ns_lo;
 	bpf_map_update_elem(&cpu_deadlines, &cpu, &deadline_ns, BPF_ANY);
+	bpf_printk(
+		"SCX: ops.running(), Updated CPU %d deadline to %llu ns for task %d\n",
+		cpu, deadline_ns, tctx->task_nr);
+
 	return 0;
 }
 
@@ -518,6 +535,9 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 	u32 cpu = bpf_get_smp_processor_id();
 	u64 sentinel = ~0ULL;
 	bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
+	bpf_printk(
+		"SCX: ops.stopping(), Updated CPU %d deadline to sentinel value\n",
+		cpu);
 	return 0;
 }
 
@@ -542,16 +562,16 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
 	pid_t pid = p->pid;
-	bpf_printk("Task with pid %d entered SCX\n", pid);
+	bpf_printk("SCX: ops.enable(), Task with pid %d entered SCX\n", pid);
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx) {
 		bpf_printk(
-			"No task ctx found for pid %d. Have you provided task context through bpf_map_update_elem()?\n",
+			"SCX: ops.enable(), No task ctx found for pid %d. Have you provided task context through bpf_map_update_elem()?\n",
 			p->pid);
 		return -1;
 	}
 	bpf_printk(
-		"Task ctx provided for pid %d: task_nr=%llu, criticality=%s, period=%llu, modified_period=%llu, wcet_lo=%llu, wcet_hi=%llu\n",
+		"SCX: ops.enable(), Task ctx provided for pid %d: task_nr=%llu, criticality=%s, period=%llu, modified_period=%llu, wcet_lo=%llu, wcet_hi=%llu\n",
 		p->pid, tctx->task_nr, tctx->criticality == LO ? "LO" : "HI",
 		tctx->period_ms, tctx->modified_period_ms, tctx->wcet_ms_lo,
 		tctx->wcet_ms_hi);
@@ -588,11 +608,11 @@ s32 BPF_STRUCT_OPS(edfvd_init)
 	}
 	if (pin_to_single_cpu) {
 		bpf_printk(
-			"EDF-VD scheduler initialized with CPU pinning to CPU %d\n",
+			"SCX: ops.init(), EDF-VD scheduler initialized with CPU pinning to CPU %d\n",
 			target_cpu);
 	} else {
 		bpf_printk(
-			"EDF-VD scheduler initialized with %d possible CPUs\n",
+			"SCX: ops.init(), EDF-VD scheduler initialized with %d possible CPUs\n",
 			NO_CPUS);
 	}
 	return 0;
