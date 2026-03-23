@@ -335,17 +335,25 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx) {
 		bpf_printk(
-			"Failed to enqueue: No task context found for pid %d\n",
+			"ops.enqueue(): Failed to enqueue: No task context found for pid %d\n",
 			pid);
 		return -1;
 	}
 
 	/* Deadline is already calculated */
-	if (!in_hi_crit_mode)
+	if (!in_hi_crit_mode) {
 		edf_tree_insert_lo(tctx);
+		bpf_printk(
+			"ops.enqueue(): Enqueued task %d with deadline %llu ns to LO-criticality queue\n",
+			tctx->task_nr, tctx->deadline_ns_lo);
+	}
 
-	if (tctx->criticality == HI)
+	if (tctx->criticality == HI) {
 		return edf_tree_insert_hi(tctx);
+		bpf_printk(
+			"ops.enqueue(): Enqueued task %d with deadline %llu ns to HI-criticality queue\n",
+			tctx->task_nr, tctx->deadline_ns_hi);
+	}
 
 	return 0;
 }
@@ -373,6 +381,9 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		if (!next)
 			return -1;
 		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
+		bpf_printk(
+			"ops.dispatch(): Dispatched task %d with deadline %llu ns to CPU %d in LO-criticality mode\n",
+			tctx->task_nr, tctx->deadline_ns_lo, cpu);
 		bpf_task_release(next);
 	}
 	if (in_hi_crit_mode) {
@@ -385,6 +396,9 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		if (!next)
 			return -1;
 		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
+		bpf_printk(
+			"ops.dispatch(): Dispatched task %d with deadline %llu ns to CPU %d in HI-criticality mode\n",
+			tctx->task_nr, tctx->deadline_ns_hi, cpu);
 		bpf_task_release(next);
 	}
 	return 0;
