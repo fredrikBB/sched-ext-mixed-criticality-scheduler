@@ -362,7 +362,8 @@ static s32 edfvd_kick_if_needed(struct task_ctx *tctx, const char *where)
 		if (cpu_deadline_ns)
 			highest_deadline = *cpu_deadline_ns;
 	}
-	if (current_deadline < highest_deadline) {
+	if (current_deadline < highest_deadline &&
+	    !(tctx->criticality == LO && in_hi_crit_mode)) {
 		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
 		bpf_printk(
 			"SCX: %s, Kicked CPU %d due to earlier deadline of task %d job %d: %llu ns vs %llu ns\n",
