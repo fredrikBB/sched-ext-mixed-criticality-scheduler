@@ -475,7 +475,10 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 	return 0;
 }
 
-/* If it is a new job, calculate and update new deadline and set CPU runtime baseline */
+/*
+ * If it is a new job, calculate and update new deadline and set CPU runtime baseline.
+ * Kick CPU with highest registered deadline if the new deadline is earlier.
+ */
 s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 {
 	pid_t pid = p->pid;
@@ -506,7 +509,7 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	edfvd_set_new_deadline(tctx);
 
 	/* Kick CPU with highest registered deadline if new deadline is earlier */
-	edfvd_kick_if_needed(tctx, "ops.enqueue()");
+	edfvd_kick_if_needed(tctx, "ops.runnable()");
 
 	return 0;
 }
