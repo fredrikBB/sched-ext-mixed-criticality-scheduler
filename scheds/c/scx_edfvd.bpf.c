@@ -333,6 +333,45 @@ static s32 edfvd_check_wcet_overrun(struct task_struct *p,
 	return 1;
 }
 
+static s32 edfvd_kick_if_needed(struct task_ctx *tctx, const char *where)
+{
+	if (!tctx)
+		return -1;
+	u64 current_deadline = in_hi_crit_mode ? tctx->deadline_ns_hi :
+						 tctx->deadline_ns_lo;
+	u32 cpu_with_highest_deadline = 0;
+	u64 highest_deadline = 0;
+	if (!pin_to_single_cpu) {
+		u32 cpu = 0;
+		bpf_repeat(NO_CPUS)
+		{
+			u64 *cpu_deadline_ns =
+				bpf_map_lookup_elem(&cpu_deadlines, &cpu);
+			if (cpu_deadline_ns &&
+			    *cpu_deadline_ns > highest_deadline) {
+				highest_deadline = *cpu_deadline_ns;
+				cpu_with_highest_deadline = cpu;
+			}
+			cpu++;
+		}
+	}
+	if (pin_to_single_cpu) {
+		cpu_with_highest_deadline = target_cpu;
+		u64 *cpu_deadline_ns =
+			bpf_map_lookup_elem(&cpu_deadlines, &target_cpu);
+		if (cpu_deadline_ns)
+			highest_deadline = *cpu_deadline_ns;
+	}
+	if (current_deadline < highest_deadline) {
+		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
+		bpf_printk(
+			"SCX: %s, Kicked CPU %d due to earlier deadline of task %d job %d: %llu ns vs %llu ns\n",
+			where, cpu_with_highest_deadline, tctx->task_nr,
+			tctx->job_count, current_deadline, highest_deadline);
+	}
+	return 0;
+}
+
 /*
  * Enqueue the task by inserting into the appropriate EDF tree(s),
  * and kick CPU with highest registered deadline if the new deadline is earlier
@@ -364,30 +403,7 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	}
 
 	/* Kick CPU with highest registered deadline if new deadline is earlier */
-	u64 current_deadline = in_hi_crit_mode ? tctx->deadline_ns_hi :
-						 tctx->deadline_ns_lo;
-	u32 cpu_with_highest_deadline = 0;
-	u64 highest_deadline = 0;
-	if (!pin_to_single_cpu) {
-		for (u32 cpu = 0; cpu < NO_CPUS; cpu++) {
-			u64 *cpu_deadline_ns =
-				bpf_map_lookup_elem(&cpu_deadlines, &cpu);
-			if (*cpu_deadline_ns > highest_deadline) {
-				highest_deadline = *cpu_deadline_ns;
-				cpu_with_highest_deadline = cpu;
-			}
-		}
-	}
-	if (pin_to_single_cpu) {
-		cpu_with_highest_deadline = target_cpu;
-		u64 *cpu_deadline_ns =
-			bpf_map_lookup_elem(&cpu_deadlines, &target_cpu);
-		if (cpu_deadline_ns)
-			highest_deadline = *cpu_deadline_ns;
-	}
-	if (current_deadline < highest_deadline) {
-		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
-	}
+	edfvd_kick_if_needed(tctx, "ops.enqueue()");
 
 	return 0;
 }
@@ -478,6 +494,10 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	if (tctx->criticality == HI) {
 		tctx->deadline_ns_hi = unmodified_deadline;
 	}
+
+	/* Kick CPU with highest registered deadline if new deadline is earlier */
+	edfvd_kick_if_needed(tctx, "ops.enqueue()");
+
 	return 0;
 }
 
@@ -557,6 +577,9 @@ s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 		transition_to_hi_crit_mode();
 		u32 cpu = bpf_get_smp_processor_id();
 		scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
+		bpf_printk(
+			"SCX: ops.tick(), Kicked CPU %d due to LO-criticality WCET overrun by task %d job %d\n",
+			cpu, tctx->task_nr, tctx->job_count);
 	}
 	return 0;
 }
