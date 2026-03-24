@@ -372,6 +372,24 @@ static s32 edfvd_kick_if_needed(struct task_ctx *tctx, const char *where)
 	return 0;
 }
 
+static s32 edfvd_set_new_deadline(struct task_ctx *tctx)
+{
+	if (!tctx)
+		return -1;
+	/* Set new deadline */
+	u64 modified_deadline;
+	u64 unmodified_deadline;
+	u64 now_ns = bpf_ktime_get_ns();
+	/* For LO-criticality tasks modified period = period (see pre-processing) */
+	modified_deadline = now_ns + tctx->modified_period_ms * NS_PER_MS;
+	unmodified_deadline = now_ns + tctx->period_ms * NS_PER_MS;
+	tctx->deadline_ns_lo = modified_deadline;
+	if (tctx->criticality == HI) {
+		tctx->deadline_ns_hi = unmodified_deadline;
+	}
+	return 0;
+}
+
 /*
  * Enqueue the task by inserting into the appropriate EDF tree(s),
  * and kick CPU with highest registered deadline if the new deadline is earlier
@@ -483,17 +501,8 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
 	 */
 	tctx->job_start_exec_runtime_ns = p->se.sum_exec_runtime;
 
-	/* Set new deadline */
-	u64 modified_deadline;
-	u64 unmodified_deadline;
-	u64 now_ns = bpf_ktime_get_ns();
-	/* For LO-criticality tasks modified period = period (see pre-processing) */
-	modified_deadline = now_ns + tctx->modified_period_ms * NS_PER_MS;
-	unmodified_deadline = now_ns + tctx->period_ms * NS_PER_MS;
-	tctx->deadline_ns_lo = modified_deadline;
-	if (tctx->criticality == HI) {
-		tctx->deadline_ns_hi = unmodified_deadline;
-	}
+	/* Set new deadline for the new job */
+	edfvd_set_new_deadline(tctx);
 
 	/* Kick CPU with highest registered deadline if new deadline is earlier */
 	edfvd_kick_if_needed(tctx, "ops.enqueue()");
@@ -532,6 +541,8 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 /*
  * Update CPU deadlines map with the deadline of the running task.
  * Necessary for preemption logic.
+ * Also update deadline and runtime baseline if it is the first job
+ * since if that is the case ops.runnable() is not called.
  */
 s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 {
@@ -540,6 +551,20 @@ s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx)
 		return -1;
+
+	/* If it is the first job, update deadline and runtime baseline */
+	if (tctx->new_job) {
+		tctx->job_start_exec_runtime_ns = p->se.sum_exec_runtime;
+		edfvd_set_new_deadline(tctx);
+		tctx->new_job = false;
+		bpf_printk(
+			"SCX: ops.running(), First job detected for task %d. Set deadline to %llu ns\n",
+			tctx->task_nr,
+			in_hi_crit_mode ? tctx->deadline_ns_hi :
+					  tctx->deadline_ns_lo);
+	}
+
+	/* Update CPU deadline map */
 	u64 deadline_ns = in_hi_crit_mode ? tctx->deadline_ns_hi :
 					    tctx->deadline_ns_lo;
 	bpf_map_update_elem(&cpu_deadlines, &cpu, &deadline_ns, BPF_ANY);
