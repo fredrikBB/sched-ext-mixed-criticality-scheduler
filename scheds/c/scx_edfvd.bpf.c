@@ -522,7 +522,7 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 	tctx->job_count++;
 
 	/* Check for LO-criticality WCET overrun */
-	s32 overrun = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
+	s32 overrun = edfvd_check_wcet_overrun(p, tctx, "ops.quiescent()");
 	if (overrun)
 		transition_to_hi_crit_mode();
 
