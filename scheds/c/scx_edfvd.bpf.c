@@ -573,8 +573,11 @@ s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 	if (!tctx)
 		return -1;
 	s32 ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
-	if (ret) {
-		transition_to_hi_crit_mode();
+	if (!ret) {
+		return 0;
+	}
+	transition_to_hi_crit_mode();
+	if (tctx->criticality == LO) {
 		u32 cpu = bpf_get_smp_processor_id();
 		scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
 		bpf_printk(
