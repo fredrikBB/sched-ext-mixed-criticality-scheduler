@@ -111,6 +111,40 @@ struct edfvd_task_set task_set_4 = {
 		   } }
 };
 
+/*
+ * - LO-mode total utilization: 0.95
+ * - HI-mode total utilization: 0.95
+ */
+struct edfvd_task_set task_set_5 = { .num_tasks = 4,
+				     .tasks = {
+					     {
+						     .task_nr = 1,
+						     .criticality = LO,
+						     .period_ms = 800,
+						     .wcet_ms_lo = 20,
+					     },
+					     {
+						     .task_nr = 2,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 25,
+					     },
+					     {
+						     .task_nr = 3,
+						     .criticality = HI,
+						     .period_ms = 1200,
+						     .wcet_ms_lo = 540,
+						     .wcet_ms_hi = 570,
+					     },
+					     {
+						     .task_nr = 4,
+						     .criticality = HI,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 450,
+						     .wcet_ms_hi = 475,
+					     },
+				     } };
+
 struct edfvd_task_set get_task_set(char *optarg)
 {
 	if (strcmp(optarg, "1") == 0) {
@@ -124,6 +158,9 @@ struct edfvd_task_set get_task_set(char *optarg)
 	}
 	if (strcmp(optarg, "4") == 0) {
 		return task_set_4;
+	}
+	if (strcmp(optarg, "5") == 0) {
+		return task_set_5;
 	}
 	fprintf(stderr, "Unknown task set: %s\n", optarg);
 	exit(EXIT_FAILURE);
