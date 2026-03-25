@@ -614,13 +614,29 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 	return 0;
 }
 
-/* Tick to monitor if running tasks break their LO-criticality WCET. */
+/*
+ * Tick to monitor if running tasks break their LO-criticality WCET and
+ * if the deadline is surpassed.
+ */
 s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 {
 	pid_t pid = p->pid;
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx)
 		return -1;
+
+	/* Check for deadline surpassal */
+	u64 now_ns = bpf_ktime_get_ns();
+	u64 current_deadline = in_hi_crit_mode ? tctx->deadline_ns_hi :
+						 tctx->deadline_ns_lo;
+	if (now_ns > current_deadline) {
+		bpf_printk(
+			"SCX: ops.tick(), Task %d job %d missed its deadline! Current time: %llu ns, Deadline: %llu ns\n",
+			tctx->task_nr, tctx->job_count, now_ns,
+			current_deadline);
+	}
+
+	/* Check for LO-criticality WCET overrun */
 	s32 ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
 	if (!ret) {
 		return 0;
@@ -656,6 +672,8 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 		tctx->wcet_ms_hi);
 
 	tctx->pid = pid;
+	tctx->deadline_ns_lo = SENTINEL_DEADLINE;
+	tctx->deadline_ns_hi = SENTINEL_DEADLINE;
 	tctx->new_job = true;
 	tctx->job_start_exec_runtime_ns = p->se.sum_exec_runtime;
 	tctx->job_count = 0;
