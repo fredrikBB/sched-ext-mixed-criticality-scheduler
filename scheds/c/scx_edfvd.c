@@ -21,6 +21,9 @@
 #define SCHED_EXT 7
 #endif
 
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
 const char help_fmt[] =
 	"An EDF-VD scheduler.\n"
 	"-v: verbose output\n"
@@ -68,13 +71,13 @@ static int parse_cpu_arg(const char *optarg)
 	return (int)parsed;
 }
 
-/* 
- * Calculates the x parameter for the EDF-VD pre-processing.
+/*
+ * Calculates the x parameter for the EDF-VD pre-processing for uniprocessor systems.
  * Returns -1 if not schedulable.
  */
-float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
+float edfvd_calculate_x_parameter_uniprocessor(struct edfvd_task_set *ts)
 {
-	/* 
+	/*
 	 * Utilization sum for HI-criticality tasks using its
 	 * LO-criticality WCET estimate.
 	 */
@@ -86,7 +89,7 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 		}
 	}
 
-	/* 
+	/*
 	 * Utilization sum for HI-criticality tasks using its
 	 * HI-criticality WCET estimate.
 	 */
@@ -124,13 +127,14 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 	return x;
 }
 
-/* 
+/*
  * Calculate the modified_period_ms for HI-criticality tasks
+ * in uniprocessor systems.
  *
  * modified_period_ms = x * period_ms for HI-criticality tasks
- * 
+ *
  * set modified_period_ms = period_ms for LO-criticality tasks
- * 
+ *
  * Algorithm based on Figure 1 in the paper: 
  *   S. Baruah et al., 
  *   "The Preemptive Uniprocessor Scheduling of Mixed-Criticality 
@@ -138,9 +142,127 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
  *   2012 24th Euromicro Conference on Real-Time Systems, 
  *   Pisa, Italy, 2012, pp. 145-154, doi: 10.1109/ECRTS.2012.42.
  */
-void edfvd_pre_processing(struct edfvd_task_set *ts)
+void edfvd_pre_processing_uniprocessor(struct edfvd_task_set *ts)
 {
-	float x = edfvd_calculate_x_parameter(ts);
+	float x = edfvd_calculate_x_parameter_uniprocessor(ts);
+
+	if (x == -1) {
+		fprintf(stderr, "Task set is not schedulable under EDF-VD.\n");
+		exit(EXIT_FAILURE);
+	}
+
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		if (task->criticality == HI) {
+			task->modified_period_ms = x * task->period_ms;
+		} else {
+			task->modified_period_ms = task->period_ms;
+		}
+	}
+	return;
+}
+
+float edfvd_calculate_x_parameter_multiprocessor(struct edfvd_task_set *ts)
+{
+	/*
+	 * Utilization sum for HI-criticality tasks using its
+	 * LO-criticality WCET estimate.
+	 */
+	float sum_hi_lo = 0.0;
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		if (task->criticality == HI) {
+			sum_hi_lo += (float)task->wcet_ms_lo / task->period_ms;
+		}
+	}
+
+	/*
+	 * Maximum utilization among HI-criticality tasks using its LO-criticality WCET estimate.
+	 * Used in expression for calculating x in multiprocessor systems.
+	 */
+	float max_hi_lo = 0.0;
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		if (task->criticality == HI) {
+			float utilization =
+				(float)task->wcet_ms_lo / task->period_ms;
+			if (utilization > max_hi_lo) {
+				max_hi_lo = utilization;
+			}
+		}
+	}
+
+	/*
+	 * Utilization sum for HI-criticality tasks using its
+	 * HI-criticality WCET estimate.
+	 */
+	float sum_hi_hi = 0.0;
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		if (task->criticality == HI) {
+			sum_hi_hi += (float)task->wcet_ms_hi / task->period_ms;
+		}
+	}
+
+	/*
+	 * Utilization sum for LO-criticality tasks using its
+	 * LO-criticality WCET estimate.
+	 */
+	float sum_lo_lo = 0.0;
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		if (task->criticality == LO) {
+			sum_lo_lo += (float)task->wcet_ms_lo / task->period_ms;
+		}
+	}
+
+	printf("Calculated total utilization: In LO-mode=%.4f, In HI-mode=%.4f \n",
+	       sum_hi_lo + sum_lo_lo, sum_hi_hi);
+	printf("Calculated max HI-criticality task utilization in LO-mode: %.4f\n",
+	       max_hi_lo);
+
+	/* Calculate the x parameter (fig.2 in the paper) */
+	float expr1, expr2;
+
+	expr1 = sum_hi_lo / ((NO_CPUS + 1.0) / 2.0 - sum_lo_lo);
+	expr2 = max_hi_lo;
+	float x = MAX(expr1, expr2);
+
+	printf("Calculated x parameter: %.4f\n", x);
+
+	/* Check schedulability condition (Theorem 5 in the paper) */
+	if (sum_hi_hi > (NO_CPUS + 1.0) / 2.0) {
+		return -1;
+	}
+	expr1 = sum_hi_hi;
+	expr2 = sum_hi_lo / (1.0 - sum_hi_hi * 2.0 / (NO_CPUS + 1.0));
+	float min = MIN(expr1, expr2);
+	if (sum_lo_lo + min > (NO_CPUS + 1.0) / 2.0) {
+		return -1;
+	}
+	return x;
+}
+
+/*
+ * Calculate the modified_period_ms for HI-criticality tasks
+ * in multiprocessor systems.
+ *
+ * modified_period_ms = x * period_ms for HI-criticality tasks
+ *
+ * set modified_period_ms = period_ms for LO-criticality tasks
+ *
+ * Algorithm based on the extention of EDF-VD to multiprocessor systems
+ * scheduled by the fpEDF algorithm (a normal non-mixed-criticality global EDF algorithm):
+ * Baruah, S., Chattopadhyay, B., Li, H. et al.
+ * Mixed-criticality scheduling on multiprocessors.
+ * Real-Time Syst 50, 142–177 (2014).
+ * https://doi.org/10.1007/s11241-013-9184-2
+ *
+ * Note that scx_edfvd.bpf.c does not implement fpEDF but is also an global EDF scheduler.
+ */
+void edfvd_pre_processing_multiprocessor(struct edfvd_task_set *ts)
+{
+	float x = edfvd_calculate_x_parameter_multiprocessor(ts);
 
 	if (x == -1) {
 		fprintf(stderr, "Task set is not schedulable under EDF-VD.\n");
@@ -379,8 +501,13 @@ restart:
 	link = SCX_OPS_ATTACH(skel, edfvd_ops, scx_edfvd);
 	printf("EDF-VD scheduler loaded and attached.\n");
 
-	edfvd_pre_processing(&task_set);
-	printf("Task set preprocessed.\n");
+	if (pin_to_single_cpu) {
+		edfvd_pre_processing_uniprocessor(&task_set);
+		printf("Task set preprocessed for uniprocessor.\n");
+	} else {
+		edfvd_pre_processing_multiprocessor(&task_set);
+		printf("Task set preprocessed for multiprocessor.\n");
+	}
 
 	edfvd_print_task_set(&task_set);
 
