@@ -415,7 +415,7 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 	}
 
 	if (tctx->criticality == HI) {
-		return edf_tree_insert_hi(tctx);
+		edf_tree_insert_hi(tctx);
 		bpf_printk(
 			"SCX: ops.enqueue(), Enqueued task %d job %d with deadline %llu ns to HI-criticality queue\n",
 			tctx->task_nr, tctx->job_count, tctx->deadline_ns_hi);
