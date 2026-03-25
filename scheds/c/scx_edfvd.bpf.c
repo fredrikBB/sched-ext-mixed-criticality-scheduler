@@ -3,6 +3,7 @@
 #include "scx_edfvd.h"
 
 #define NS_PER_MS 1000000
+#define SENTINEL_DEADLINE 0xFFFFFFFFFFFFFFFF
 
 char _license[] SEC("license") = "GPL";
 
@@ -362,6 +363,13 @@ static s32 edfvd_kick_if_needed(struct task_ctx *tctx, const char *where)
 		if (cpu_deadline_ns)
 			highest_deadline = *cpu_deadline_ns;
 	}
+	if (pin_to_single_cpu && highest_deadline == SENTINEL_DEADLINE) {
+		/*
+		 * No task is running on the target CPU in pinned mode, so no need to kick
+		 * as this can cause a preemption storm.
+		 */
+		return 0;
+	}
 	if (current_deadline < highest_deadline &&
 	    !(tctx->criticality == LO && in_hi_crit_mode)) {
 		scx_bpf_kick_cpu(cpu_with_highest_deadline, SCX_KICK_PREEMPT);
@@ -598,7 +606,7 @@ s32 BPF_STRUCT_OPS(edfvd_running, struct task_struct *p)
 s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
 {
 	u32 cpu = bpf_get_smp_processor_id();
-	u64 sentinel = ~0ULL;
+	u64 sentinel = SENTINEL_DEADLINE;
 	bpf_map_update_elem(&cpu_deadlines, &cpu, &sentinel, BPF_ANY);
 	bpf_printk(
 		"SCX: ops.stopping(), Updated CPU %d deadline to sentinel value\n",
@@ -658,7 +666,7 @@ s32 BPF_STRUCT_OPS(edfvd_enable, struct task_struct *p,
 s32 BPF_STRUCT_OPS(edfvd_init)
 {
 	/* Initilize cpu deadlines with maximum values */
-	u64 sentinel = ~0ULL;
+	u64 sentinel = SENTINEL_DEADLINE;
 	u32 cpu = 0;
 	bpf_repeat(NO_CPUS)
 	{
