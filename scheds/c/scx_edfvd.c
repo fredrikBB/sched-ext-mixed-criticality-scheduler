@@ -109,8 +109,13 @@ float edfvd_calculate_x_parameter(struct edfvd_task_set *ts)
 		}
 	}
 
+	printf("Calculated total utilization: In LO-mode=%.4f, In HI-mode=%.4f \n",
+	       sum_hi_lo + sum_lo_lo, sum_hi_hi);
+
 	/* Calculate the x parameter */
 	float x = sum_hi_lo / (1.0 - sum_lo_lo);
+
+	printf("Calculated x parameter: %.4f\n", x);
 
 	/* Check schedulability condition */
 	if (x * sum_lo_lo + sum_hi_hi > 1.0) {
