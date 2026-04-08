@@ -259,9 +259,30 @@ float edfvd_calculate_x_parameter_multiprocessor(struct edfvd_task_set *ts)
  * https://doi.org/10.1007/s11241-013-9184-2
  *
  * Note that scx_edfvd.bpf.c does not implement fpEDF but is also an global EDF scheduler.
+ *
+ * The same pre-processing step is applicable under the assumption that no single task has an
+ * utilization higher than 0.5 (S. K. Baruah, 2004, "Optimal utilization bounds for the fixed-priority
+ * scheduling of periodic task systems on identical multiprocessors")
  */
 void edfvd_pre_processing_multiprocessor(struct edfvd_task_set *ts)
 {
+	/* Check max 0.5 utilization assumption for adopting the fdEDF's pre-processing step */
+	for (int i = 0; i < ts->num_tasks; i++) {
+		struct edfvd_task *task = &ts->tasks[i];
+		float utilization_lo =
+			(float)task->wcet_ms_lo / task->period_ms;
+		float utilization_hi =
+			(float)task->wcet_ms_hi / task->period_ms;
+		if (utilization_lo > 0.5 || utilization_hi > 0.5) {
+			fprintf(stderr,
+				"Task %lu has utilization higher than 0.5\n",
+				task->task_nr);
+			fprintf(stderr,
+				"This EDF-VD implementation does not support such task sets for multiprocessor systems.\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+
 	float x = edfvd_calculate_x_parameter_multiprocessor(ts);
 
 	if (x == -1) {
