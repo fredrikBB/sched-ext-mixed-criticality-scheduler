@@ -344,7 +344,7 @@ void edfvd_copy_task_to_map(struct edfvd_task *task)
 void do_variable_work(struct edfvd_task *task, u64 job_count, int overrun)
 {
 	float percantage_of_wcet = 0.8;
-	struct timespec start_time, current_time;
+	struct timespec start_cpu_time, current_cpu_time;
 
 	if (overrun) {
 		percantage_of_wcet = 1.2;
@@ -353,16 +353,18 @@ void do_variable_work(struct edfvd_task *task, u64 job_count, int overrun)
 	u64 work_time_ms = (u64)(percantage_of_wcet * task->wcet_ms_lo);
 	u64 elapsed_ms = 0;
 
-	clock_gettime(CLOCK_MONOTONIC, &start_time);
+	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start_cpu_time);
 	while (elapsed_ms < work_time_ms) {
-		clock_gettime(CLOCK_MONOTONIC, &current_time);
+		clock_gettime(CLOCK_THREAD_CPUTIME_ID, &current_cpu_time);
 		elapsed_ms =
-			(current_time.tv_sec - start_time.tv_sec) * 1000 +
-			(current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+			(current_cpu_time.tv_sec - start_cpu_time.tv_sec) *
+				1000 +
+			(current_cpu_time.tv_nsec - start_cpu_time.tv_nsec) /
+				1000000;
 	}
 
 	if (verbose) {
-		printf("Task %lu completed job %lu after %lu ms of work (overrun=%d)\n",
+		printf("Task %lu completed job %lu after %lu ms of CPU work (overrun=%d)\n",
 		       task->task_nr, job_count, elapsed_ms, overrun);
 	}
 }
