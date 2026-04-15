@@ -2,6 +2,9 @@
 #include <scx/common.bpf.h>
 #include "scx_edfvd.h"
 
+/* Defined in include/linux/sched.h */
+#define TASK_INTERRUPTIBLE 0x00000001
+
 #define NS_PER_MS 1000000
 #define SENTINEL_DEADLINE 0xFFFFFFFFFFFFFFFF
 
@@ -533,6 +536,14 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 {
 	if (!(deq_flags & SCX_DEQ_SLEEP))
 		return 0;
+
+	/*
+	 * A task can also go into quiescent with SCX_DEQ_SLEEP flag if in uninterruptible (D) state,
+	 * to make sure the job was completed check that we are in interruptible state (S).
+	 */
+	if (!(READ_ONCE(p->__state) & TASK_INTERRUPTIBLE)) {
+		return 0;
+	}
 
 	/* Job completed! */
 	pid_t pid = p->pid;
