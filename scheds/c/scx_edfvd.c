@@ -29,9 +29,11 @@ const char help_fmt[] =
 	"-v: verbose output\n"
 	"-t <task_set>: specify task set to use (e.g., -t 1)\n"
 	"-c <cpu>: pin all EDF-VD task threads to one CPU in [0, 3]\n"
+	"-f: force overrun (for testing purposes)\n"
 	"(default: use all 4 CPUs)\n";
 
 static bool verbose;
+static bool force_overrun;
 static volatile int exit_req;
 static int task_ctx_map_fd;
 static int cpu_pin_map_fd;
@@ -398,7 +400,7 @@ void *dummy_task(void *arg)
 			       current_time.tv_nsec);
 		}
 
-		if (job_count > 10) {
+		if (job_count > 10 && force_overrun) {
 			do_variable_work(task, job_count, 1);
 		} else {
 			do_variable_work(task, job_count, 0);
@@ -487,7 +489,7 @@ int main(int argc, char **argv)
 restart:
 	skel = SCX_OPS_OPEN(edfvd_ops, scx_edfvd);
 	int task_set_selected = 0;
-	while ((opt = getopt(argc, argv, "vht:c:")) != -1) {
+	while ((opt = getopt(argc, argv, "vht:c:f")) != -1) {
 		switch (opt) {
 		case 'v':
 			verbose = true;
@@ -501,6 +503,9 @@ restart:
 			if (target_cpu < 0)
 				exit(EXIT_FAILURE);
 			pin_to_single_cpu = true;
+			break;
+		case 'f':
+			force_overrun = true;
 			break;
 		default:
 			fprintf(stderr, "%s", help_fmt);

@@ -145,6 +145,16 @@ struct edfvd_task_set task_set_5 = { .num_tasks = 4,
 					     },
 				     } };
 
+struct edfvd_task_set task_set_6 = { .num_tasks = 1,
+				     .tasks = {
+					     {
+						     .task_nr = 1,
+						     .criticality = LO,
+						     .period_ms = 200,
+						     .wcet_ms_lo = 50,
+					     },
+				     } };
+
 struct edfvd_task_set get_task_set(char *optarg)
 {
 	if (strcmp(optarg, "1") == 0) {
@@ -161,6 +171,9 @@ struct edfvd_task_set get_task_set(char *optarg)
 	}
 	if (strcmp(optarg, "5") == 0) {
 		return task_set_5;
+	}
+	if (strcmp(optarg, "6") == 0) {
+		return task_set_6;
 	}
 	fprintf(stderr, "Unknown task set: %s\n", optarg);
 	exit(EXIT_FAILURE);
