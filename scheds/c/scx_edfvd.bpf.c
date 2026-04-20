@@ -645,6 +645,8 @@ s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 			"SCX: ops.tick(), Task %d job %d missed its deadline! Current time: %llu ns, Deadline: %llu ns\n",
 			tctx->task_nr, tctx->job_count, now_ns,
 			current_deadline);
+		scx_bpf_exit(SCX_EXIT_NONE, "Task %d missed its deadline!",
+			     (int)tctx->task_nr);
 	}
 
 	/* Check for LO-criticality WCET overrun */
