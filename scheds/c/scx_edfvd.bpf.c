@@ -308,6 +308,34 @@ s32 transition_to_hi_crit_mode(void)
 	return 0;
 }
 
+static s32 edfvd_check_deadline_surpassal(struct task_struct *p,
+					  struct task_ctx *tctx,
+					  const char *where)
+{
+	u64 now_ns = bpf_ktime_get_ns();
+	u64 current_deadline;
+	if (tctx->criticality == LO) {
+		current_deadline = tctx->deadline_ns_lo;
+	}
+	if (tctx->criticality == HI) {
+		/*
+		 * For HI-criticality tasks, we check against the unmodified deadline
+		 * (stored in deadline_ns_hi), even in LO-criticality mode, as this is the
+		 * deadline that matters for determining if a task has missed its deadline.
+		 * Umodified deadline is start + period, and not start + modified period.
+		*/
+		current_deadline = tctx->deadline_ns_hi;
+	}
+	if (now_ns > current_deadline) {
+		bpf_printk(
+			"SCX: %s, Task %d job %d missed its deadline! Current time: %llu ns, (unmodified) Deadline: %llu ns\n",
+			where, tctx->task_nr, tctx->job_count, now_ns,
+			current_deadline);
+		return 1;
+	}
+	return 0;
+}
+
 static s32 edfvd_check_wcet_overrun(struct task_struct *p,
 				    struct task_ctx *tctx, const char *where)
 {
@@ -631,26 +659,21 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
  */
 s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 {
+	s32 ret;
 	pid_t pid = p->pid;
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx)
 		return -1;
 
 	/* Check for deadline surpassal */
-	u64 now_ns = bpf_ktime_get_ns();
-	u64 current_deadline = in_hi_crit_mode ? tctx->deadline_ns_hi :
-						 tctx->deadline_ns_lo;
-	if (now_ns > current_deadline) {
-		bpf_printk(
-			"SCX: ops.tick(), Task %d job %d missed its deadline! Current time: %llu ns, Deadline: %llu ns\n",
-			tctx->task_nr, tctx->job_count, now_ns,
-			current_deadline);
+	ret = edfvd_check_deadline_surpassal(p, tctx, "ops.tick()");
+	if (ret) {
 		scx_bpf_exit(SCX_EXIT_NONE, "Task %d missed its deadline!",
 			     (int)tctx->task_nr);
 	}
 
 	/* Check for LO-criticality WCET overrun */
-	s32 ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
+	ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
 	if (!ret) {
 		return 0;
 	}
