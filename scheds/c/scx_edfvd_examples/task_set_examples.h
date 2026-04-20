@@ -155,6 +155,72 @@ struct edfvd_task_set task_set_6 = { .num_tasks = 1,
 					     },
 				     } };
 
+struct edfvd_task_set task_set_7 = { .num_tasks = 8,
+				     .tasks = {
+					     {
+						     .task_nr = 1,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+					     },
+					     {
+						     .task_nr = 2,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+					     },
+					     {
+						     .task_nr = 3,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+					     },
+					     {
+						     .task_nr = 4,
+						     .criticality = LO,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+					     },
+					     {
+						     .task_nr = 5,
+						     .criticality = HI,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+						     .wcet_ms_hi = 200,
+					     },
+					     {
+						     .task_nr = 6,
+						     .criticality = HI,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+						     .wcet_ms_hi = 200,
+					     },
+					     {
+						     .task_nr = 7,
+						     .criticality = HI,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+						     .wcet_ms_hi = 200,
+					     },
+					     {
+						     .task_nr = 8,
+						     .criticality = HI,
+						     .period_ms = 1000,
+						     .wcet_ms_lo = 100,
+						     .wcet_ms_hi = 200,
+					     },
+				     } };
+
+void scale_task_set(struct edfvd_task_set *ts, float scale_factor)
+{
+	for (int i = 0; i < ts->num_tasks; i++) {
+		ts->tasks[i].wcet_ms_lo =
+			(u64)(ts->tasks[i].wcet_ms_lo * scale_factor);
+		ts->tasks[i].wcet_ms_hi =
+			(u64)(ts->tasks[i].wcet_ms_hi * scale_factor);
+	}
+}
+
 struct edfvd_task_set get_task_set(char *optarg)
 {
 	if (strcmp(optarg, "1") == 0) {
@@ -174,6 +240,13 @@ struct edfvd_task_set get_task_set(char *optarg)
 	}
 	if (strcmp(optarg, "6") == 0) {
 		return task_set_6;
+	}
+	if (strcmp(optarg, "7") == 0) {
+		float scale_factor = 1.0; /* Default scaling factor */
+		printf("Input factor to scale WCET of every task in task set 7 by (e.g., 0.5 to halve the WCETs and periods, 2 to double them):\n");
+		scanf("%f", &scale_factor);
+		scale_task_set(&task_set_7, scale_factor);
+		return task_set_7;
 	}
 	fprintf(stderr, "Unknown task set: %s\n", optarg);
 	exit(EXIT_FAILURE);
