@@ -557,7 +557,7 @@ s32 BPF_STRUCT_OPS(edfvd_runnable, struct task_struct *p, u64 enq_flags)
  * Detect if job is completed. Necessary for deadline logic.
  * Also set remaning slice to zero so new job enters enqueue() and gets
  * WCET slice right from the start.
- * Also added an additional check for LO-criticality WCET overrun here in case the task finishes,
+ * Also added an additional check for LO-criticality WCET overrun / deadline surpassal here,
  * but it is almost always detected by ops.tick() first.
  */
 s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
@@ -592,6 +592,13 @@ s32 BPF_STRUCT_OPS(edfvd_quiescent, struct task_struct *p, u64 deq_flags)
 	bpf_printk(
 		"SCX: ops.quiescent(), Set remaining slice for task %d job %d to %llu\n",
 		tctx->task_nr, tctx->job_count, p->scx.slice);
+
+	/* Check for deadline surpassal */
+	s32 ret = edfvd_check_deadline_surpassal(p, tctx, "ops.quiescent()");
+	if (ret) {
+		scx_bpf_exit(SCX_EXIT_NONE, "Task %d missed its deadline!",
+			     (int)tctx->task_nr);
+	}
 
 	/* Check for LO-criticality WCET overrun */
 	s32 overrun = edfvd_check_wcet_overrun(p, tctx, "ops.quiescent()");
