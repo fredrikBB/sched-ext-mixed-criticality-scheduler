@@ -215,9 +215,9 @@ void scale_task_set(struct edfvd_task_set *ts, float scale_factor)
 {
 	for (int i = 0; i < ts->num_tasks; i++) {
 		ts->tasks[i].wcet_ms_lo =
-			(u64)(ts->tasks[i].wcet_ms_lo * scale_factor);
+			(u64)(ts->tasks[i].wcet_ms_lo * scale_factor + 0.5f);
 		ts->tasks[i].wcet_ms_hi =
-			(u64)(ts->tasks[i].wcet_ms_hi * scale_factor);
+			(u64)(ts->tasks[i].wcet_ms_hi * scale_factor + 0.5f);
 	}
 }
 
