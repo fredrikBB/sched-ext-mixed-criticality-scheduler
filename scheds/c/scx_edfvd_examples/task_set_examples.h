@@ -243,7 +243,7 @@ struct edfvd_task_set get_task_set(char *optarg)
 	}
 	if (strcmp(optarg, "7") == 0) {
 		float scale_factor = 1.0; /* Default scaling factor */
-		printf("Input factor to scale WCET of every task in task set 7 by (e.g., 0.5 to halve the WCETs and periods, 2 to double them):\n");
+		printf("Input factor to scale WCET of every task in task set 7 by (e.g., 0.5 to halve the WCETs, 2 to double them):\n");
 		scanf("%f", &scale_factor);
 		scale_task_set(&task_set_7, scale_factor);
 		return task_set_7;
