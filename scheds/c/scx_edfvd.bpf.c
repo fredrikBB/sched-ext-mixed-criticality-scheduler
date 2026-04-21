@@ -488,7 +488,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, wcet_ns, 0);
 		bpf_printk(
 			"SCX: ops.dispatch(), Dispatched task %d job %d with deadline %llu ns to CPU %d in LO-criticality mode\n",
 			tctx->task_nr, tctx->job_count, tctx->deadline_ns_lo,
@@ -504,7 +504,7 @@ s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 		struct task_struct *next = bpf_task_from_pid(pid);
 		if (!next)
 			return -1;
-		scx_bpf_dsq_insert(next, SCX_DSQ_LOCAL, wcet_ns, 0);
+		scx_bpf_dsq_insert(next, SCX_DSQ_GLOBAL, wcet_ns, 0);
 		bpf_printk(
 			"SCX: ops.dispatch(), Dispatched task %d job %d with deadline %llu ns to CPU %d in HI-criticality mode\n",
 			tctx->task_nr, tctx->job_count, tctx->deadline_ns_hi,
