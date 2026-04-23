@@ -304,6 +304,22 @@ s32 transition_to_hi_crit_mode(void)
 		if (!tctx)
 			break;
 	}
+	/*
+	 * Kick all CPUs used to preempt running LO-criticality tasks,
+	 * and re-evaluate HI-criticality task according to their unmodified
+	 * deadline.
+	 */
+	if (pin_to_single_cpu) {
+		scx_bpf_kick_cpu(target_cpu, SCX_KICK_PREEMPT);
+	}
+	if (!pin_to_single_cpu) {
+		u32 cpu = 0;
+		bpf_repeat(NO_CPUS)
+		{
+			scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
+			cpu++;
+		}
+	}
 	bpf_printk("SCX: Entered to HI-criticality mode\n");
 	return 0;
 }
@@ -666,32 +682,23 @@ s32 BPF_STRUCT_OPS(edfvd_stopping, struct task_struct *p, bool runnable)
  */
 s32 BPF_STRUCT_OPS(edfvd_tick, struct task_struct *p)
 {
-	s32 ret;
 	pid_t pid = p->pid;
 	struct task_ctx *tctx = bpf_map_lookup_elem(&task_ctx, &pid);
 	if (!tctx)
 		return -1;
 
 	/* Check for deadline surpassal */
-	ret = edfvd_check_deadline_surpassal(p, tctx, "ops.tick()");
+	s32 ret = edfvd_check_deadline_surpassal(p, tctx, "ops.tick()");
 	if (ret) {
 		scx_bpf_exit(SCX_EXIT_NONE, "Task %d missed its deadline!",
 			     (int)tctx->task_nr);
 	}
 
 	/* Check for LO-criticality WCET overrun */
-	ret = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
-	if (!ret) {
-		return 0;
-	}
-	transition_to_hi_crit_mode();
-	if (tctx->criticality == LO) {
-		u32 cpu = bpf_get_smp_processor_id();
-		scx_bpf_kick_cpu(cpu, SCX_KICK_PREEMPT);
-		bpf_printk(
-			"SCX: ops.tick(), Kicked CPU %d due to LO-criticality WCET overrun by task %d job %d\n",
-			cpu, tctx->task_nr, tctx->job_count);
-	}
+	s32 overrun = edfvd_check_wcet_overrun(p, tctx, "ops.tick()");
+	if (overrun)
+		transition_to_hi_crit_mode();
+
 	return 0;
 }
 
