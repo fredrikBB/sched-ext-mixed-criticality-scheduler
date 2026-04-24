@@ -489,7 +489,6 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 {
 	if (pin_to_single_cpu && cpu != target_cpu) {
-		/* If pinning is enabled, only dispatch to the target CPU */
 		return 0;
 	}
 
