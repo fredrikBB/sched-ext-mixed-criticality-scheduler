@@ -484,7 +484,7 @@ s32 BPF_STRUCT_OPS(edfvd_enqueue, struct task_struct *p, u64 enq_flags)
 
 /*
  * Pop a task from the appropriate EDF tree and dispatch it into the 
- * local dispatch queue (DSQ) of the calling CPU.
+ * global dispatch queue (DSQ) if the CPU is used for the EDF-VD algorithm.
  */
 s32 BPF_STRUCT_OPS(edfvd_dispatch, s32 cpu, struct task_struct *prev)
 {
